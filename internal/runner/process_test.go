@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +35,30 @@ func runFakeServer(mode string) {
 	switch mode {
 	case "crash":
 		os.Exit(3)
+
+	case "spawn-child":
+		// Stands in for the thing that makes process groups necessary: a
+		// server that starts a helper of its own. The child's pid goes to the
+		// log so the test can check afterwards whether it survived.
+		self, err := os.Executable()
+		if err != nil {
+			os.Exit(4)
+		}
+		child := exec.Command(self)
+		child.Env = append(os.Environ(), fakeServerEnv+"=idle-child")
+		if err := child.Start(); err != nil {
+			os.Exit(5)
+		}
+		_, _ = io.WriteString(out, "[INFO] child pid "+strconv.Itoa(child.Process.Pid)+"\n")
+		time.Sleep(time.Hour)
+		os.Exit(0)
+
+	case "idle-child":
+		// Deliberately holds neither stdin nor stdout: the point is that it
+		// outlives its parent unless something kills the group.
+		time.Sleep(time.Hour)
+		os.Exit(0)
+
 	case "ignore-stop":
 		// Never reads stdin: exercises the graceful-stop timeout and the fall
 		// back to Kill. A plain `select {}` would not do — the runtime spots

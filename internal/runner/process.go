@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,12 @@ import (
 // crashing plugin can emit a very long one and bufio.Scanner would otherwise
 // fail the whole stream on a 64 KiB default.
 const maxLineBytes = 1 << 20
+
+// DefaultShutdownTimeout is how long a server gets to save and exit when the
+// daemon is going down. Shorter than an operator-initiated stop: the daemon
+// itself is on a clock, and a world that has not finished saving is killed by
+// the process group anyway when the process exits.
+const DefaultShutdownTimeout = 20 * time.Second
 
 // CommandBuilder produces the executable and arguments used to launch a server.
 // It is a field on ProcessRunner so tests can start a harmless fake process
@@ -80,14 +87,17 @@ func EncodingArgs() []string {
 // ProcessRunner runs each server as a direct child process. It is the runner
 // used on Windows and on Linux hosts without Docker.
 //
-// Killing the whole process tree on Windows needs job objects; that is task 1.6
-// and is not implemented here — Kill currently signals the direct child only.
+// A kill reaches the whole tree, not just the direct child: see procGroup.
 type ProcessRunner struct {
 	// Build produces the launch command. Defaults to DefaultCommandBuilder.
 	Build CommandBuilder
 
 	// StopCommand is written to stdin for a graceful stop.
 	StopCommand string
+
+	// ShutdownTimeout is how long each server gets to stop when the daemon is
+	// going down. Zero means DefaultShutdownTimeout.
+	ShutdownTimeout time.Duration
 
 	// Env is the environment for launched processes. Nil means inherit the
 	// daemon's environment.
@@ -119,6 +129,7 @@ type process struct {
 
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
+	group procGroup
 
 	mu        sync.Mutex
 	status    Status
@@ -155,9 +166,17 @@ func (r *ProcessRunner) Start(ctx context.Context, srv *Server) error {
 		return fmt.Errorf("building launch command for server %s: %w", srv.ID, err)
 	}
 
+	name, dir, err := resolveLaunchPaths(name, srv.Dir)
+	if err != nil {
+		return fmt.Errorf("resolving launch paths for server %s: %w", srv.ID, err)
+	}
+
 	cmd := exec.Command(name, args...)
-	cmd.Dir = srv.Dir
+	cmd.Dir = dir
 	cmd.Env = r.Env
+
+	group := newProcGroup()
+	group.prepare(cmd)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -177,6 +196,7 @@ func (r *ProcessRunner) Start(ctx context.Context, srv *Server) error {
 		hub:    NewHub(ConsoleBufferLines),
 		cmd:    cmd,
 		stdin:  stdin,
+		group:  group,
 		status: StatusStarting,
 		exited: make(chan struct{}),
 	}
@@ -190,6 +210,15 @@ func (r *ProcessRunner) Start(ctx context.Context, srv *Server) error {
 		p.hub.Close()
 		close(p.exited)
 		return fmt.Errorf("starting server %s: %w", srv.ID, err)
+	}
+
+	// A server that runs but cannot be killed as a tree is still better than
+	// no server, so a failed attach is a warning rather than a refusal — but
+	// it is a warning worth seeing, because it means a later kill may leave
+	// children holding the port.
+	if err := group.attach(cmd); err != nil {
+		r.log.Warn("could not group the server process; a kill may leave children behind",
+			slog.String("server_id", srv.ID), slog.String("error", err.Error()))
 	}
 
 	p.mu.Lock()
@@ -207,6 +236,37 @@ func (r *ProcessRunner) Start(ctx context.Context, srv *Server) error {
 	go r.reap(p)
 
 	return nil
+}
+
+// resolveLaunchPaths makes the executable and the working directory absolute.
+//
+// This is not tidiness. os/exec resolves a relative Path against the *calling
+// process's* directory, not against Cmd.Dir — so launching
+// "data/java/21/bin/java.exe" with Dir set to the server's folder looks
+// obviously correct and fails with "the system cannot find the path
+// specified", naming a path that plainly exists. The daemon hands out paths
+// derived from a data directory that is relative by default, so this is the
+// normal case rather than an edge one.
+//
+// A bare name with no separator is left alone: that is a PATH lookup, which is
+// what "java" is meant to be.
+func resolveLaunchPaths(name, dir string) (string, string, error) {
+	if dir != "" {
+		absDir, err := filepath.Abs(dir)
+		if err != nil {
+			return "", "", fmt.Errorf("resolving the server directory %q: %w", dir, err)
+		}
+		dir = absDir
+	}
+
+	if strings.ContainsAny(name, `/\`) && !filepath.IsAbs(name) {
+		absName, err := filepath.Abs(name)
+		if err != nil {
+			return "", "", fmt.Errorf("resolving the launch command %q: %w", name, err)
+		}
+		name = absName
+	}
+	return name, dir, nil
 }
 
 // capture reads one stream line by line into the hub.
@@ -241,6 +301,14 @@ func (r *ProcessRunner) reap(p *process) {
 			slog.String("server_id", p.id), slog.String("error", err.Error()))
 	}
 	p.setStatus(final)
+
+	// Released after the process is reaped, not before: on Windows the job
+	// handle is what keeps the group alive, and closing it early would kill a
+	// server that was merely being waited on.
+	if err := p.group.close(); err != nil {
+		r.log.Debug("releasing the process group failed",
+			slog.String("server_id", p.id), slog.String("error", err.Error()))
+	}
 
 	close(p.exited)
 	p.hub.Close()
@@ -332,7 +400,10 @@ func (r *ProcessRunner) Kill(ctx context.Context, id string) error {
 	if p.cmd.Process == nil {
 		return ErrNotRunning
 	}
-	if err := p.cmd.Process.Kill(); err != nil {
+	// The whole group, not just the direct child: a JVM started through a
+	// wrapper, or a modded server that forks a helper, leaves children holding
+	// the port and the world files behind otherwise.
+	if err := p.group.kill(p.cmd); err != nil {
 		return fmt.Errorf("killing server %s: %w", id, err)
 	}
 
@@ -412,8 +483,18 @@ func (r *ProcessRunner) SendCommand(ctx context.Context, id string, cmd string) 
 	return nil
 }
 
-// Shutdown releases every console subscription so that WebSocket handlers
-// unblock and the daemon can exit cleanly.
+// Shutdown stops every running server and releases every console
+// subscription, so WebSocket handlers unblock and the daemon can exit cleanly.
+//
+// Stopping the servers is not optional politeness. Each one is held in a
+// process group that dies with the daemon, so a daemon that exited without
+// stopping them would take every world down with a kill — no "Saving worlds",
+// no clean shutdown, whatever was in memory since the last autosave gone.
+// Asking each to stop first turns that into the ordinary shutdown a server
+// expects.
+//
+// Servers are stopped in parallel: ten worlds saving one after another would
+// not fit in a shutdown timeout that ten worlds saving at once fits easily.
 func (r *ProcessRunner) Shutdown(ctx context.Context) error {
 	r.mu.Lock()
 	procs := make([]*process, 0, len(r.procs))
@@ -421,6 +502,34 @@ func (r *ProcessRunner) Shutdown(ctx context.Context) error {
 		procs = append(procs, p)
 	}
 	r.mu.Unlock()
+
+	timeout := r.ShutdownTimeout
+	if timeout <= 0 {
+		timeout = DefaultShutdownTimeout
+	}
+	// Whatever the caller allows, minus a margin to close the sockets in. A
+	// stop that used the whole budget would leave nothing for the rest.
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline) - time.Second; remaining < timeout {
+			timeout = remaining
+		}
+	}
+
+	var wg sync.WaitGroup
+	for _, p := range procs {
+		if !p.currentStatus().IsActive() {
+			continue
+		}
+		wg.Add(1)
+		go func(p *process) {
+			defer wg.Done()
+			if err := r.Stop(ctx, p.id, timeout); err != nil {
+				r.log.Warn("stopping a server during shutdown failed",
+					slog.String("server_id", p.id), slog.String("error", err.Error()))
+			}
+		}(p)
+	}
+	wg.Wait()
 
 	for _, p := range procs {
 		p.hub.Close()
