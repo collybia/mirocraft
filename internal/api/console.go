@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 
@@ -143,8 +145,25 @@ func (a *API) handleCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The body is read whole and checked before decoding, because
+	// encoding/json silently replaces invalid UTF-8 with U+FFFD. Decoding
+	// first would turn a client that sent cp1251 into a command full of
+	// replacement characters that passes validation and reaches the server
+	// as question marks — with nothing anywhere saying why.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<10))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidationFailed, "could not read the request body")
+		return
+	}
+	if !utf8.Valid(body) {
+		writeErrorDetails(w, http.StatusBadRequest, CodeValidationFailed,
+			"the request body is not valid UTF-8",
+			map[string]any{"field": "command", "reason": "encoding"})
+		return
+	}
+
 	var req commandRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, CodeValidationFailed, "body must be a json object with a command field")
 		return
 	}
@@ -321,6 +340,12 @@ func (a *API) readPump(ctx context.Context, conn *websocket.Conn, serverID, user
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			return
+		}
+
+		if !utf8.Valid(data) {
+			trySend(outbound, errorFrame{Type: frameError, Code: CodeValidationFailed,
+				Message: "frame is not valid UTF-8"})
+			continue
 		}
 
 		var frame clientFrame

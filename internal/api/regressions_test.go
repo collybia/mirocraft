@@ -502,3 +502,77 @@ func TestLoginIdentifierValidation(t *testing.T) {
 		})
 	}
 }
+
+// A client that sends a command in the wrong encoding must be told so.
+//
+// Without this, encoding/json replaces the invalid bytes with U+FFFD, the
+// command passes validation, and the server prints question marks — with
+// nothing anywhere explaining why. Found while chasing exactly that symptom,
+// which turned out to be a cp1251 test shell rather than a panel bug.
+func TestCommandRejectsNonUTF8Body(t *testing.T) {
+	e := newTestEnv(t)
+	e.startServer(testServerID)
+
+	// "привет" encoded as cp1251, which is not valid UTF-8.
+	cp1251 := []byte{0xEF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2}
+	body := append([]byte(`{"command":"say `), cp1251...)
+	body = append(body, []byte(`"}`)...)
+
+	req, err := http.NewRequest(http.MethodPost,
+		e.server.URL+"/api/v1/servers/"+testServerID+"/command", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+e.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	if code := errorCode(t, resp); code != CodeValidationFailed {
+		t.Fatalf("error code = %q, want %q", code, CodeValidationFailed)
+	}
+}
+
+// Correctly encoded Cyrillic must go through untouched.
+func TestCommandAcceptsCyrillic(t *testing.T) {
+	e := newTestEnv(t)
+	e.startServer(testServerID)
+
+	const command = "say привет из панели"
+
+	ch, unsubscribe, err := e.runner.Subscribe(t.Context(), testServerID)
+	if err != nil {
+		t.Fatalf("subscribing: %v", err)
+	}
+	defer unsubscribe()
+
+	resp := e.do(http.MethodPost, "/api/v1/servers/"+testServerID+"/command",
+		commandRequest{Command: command}, e.token)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case line, ok := <-ch:
+			if !ok {
+				t.Fatal("the console closed before the echo arrived")
+			}
+			if strings.Contains(line.Text, "привет из панели") {
+				return // arrived intact
+			}
+			if strings.Contains(line.Text, "�") {
+				t.Fatalf("the command was mangled on the way through: %q", line.Text)
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for the echoed command")
+		}
+	}
+}

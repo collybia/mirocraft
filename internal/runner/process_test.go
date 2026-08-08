@@ -412,3 +412,60 @@ func TestDefaultCommandBuilder(t *testing.T) {
 		t.Error("DefaultCommandBuilder without a jar returned no error")
 	}
 }
+
+// Without an explicit UTF-8 setting the JVM decodes stdin and encodes stdout
+// with the platform charset, so `say привет` reaches the server as question
+// marks. Seen for real on a Russian Windows host.
+func TestDefaultCommandBuilderForcesUTF8(t *testing.T) {
+	srv := &Server{ID: "01TEST", Dir: t.TempDir(), RAMMb: 1024, JarName: "server.jar"}
+
+	_, args, err := DefaultCommandBuilder(srv)
+	if err != nil {
+		t.Fatalf("DefaultCommandBuilder: %v", err)
+	}
+
+	joined := strings.Join(args, " ")
+	for _, want := range []string{
+		"-Dfile.encoding=UTF-8",
+		"-Dstdout.encoding=UTF-8",
+		"-Dsun.stdout.encoding=UTF-8",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("args %q are missing %q", joined, want)
+		}
+	}
+
+	// The encoding flags must come before -jar, or the JVM treats them as
+	// arguments to the program rather than to itself.
+	jarAt := indexOf(args, "-jar")
+	encodingAt := indexOf(args, "-Dfile.encoding=UTF-8")
+	if jarAt < 0 || encodingAt < 0 || encodingAt > jarAt {
+		t.Fatalf("-Dfile.encoding must precede -jar, got %v", args)
+	}
+}
+
+// Operator-supplied flags must still land before -jar too.
+func TestDefaultCommandBuilderKeepsUserArgsBeforeJar(t *testing.T) {
+	srv := &Server{
+		ID: "01TEST", Dir: t.TempDir(), RAMMb: 1024, JarName: "server.jar",
+		JavaArgs: []string{"-XX:+UseG1GC"},
+	}
+
+	_, args, err := DefaultCommandBuilder(srv)
+	if err != nil {
+		t.Fatalf("DefaultCommandBuilder: %v", err)
+	}
+
+	if indexOf(args, "-XX:+UseG1GC") > indexOf(args, "-jar") {
+		t.Fatalf("user flags landed after -jar: %v", args)
+	}
+}
+
+func indexOf(args []string, want string) int {
+	for i, a := range args {
+		if a == want {
+			return i
+		}
+	}
+	return -1
+}

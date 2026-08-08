@@ -43,9 +43,38 @@ func DefaultCommandBuilder(srv *Server) (string, []string, error) {
 		"-Xms" + strconv.Itoa(ram) + "M",
 		"-Xmx" + strconv.Itoa(ram) + "M",
 	}
+	args = append(args, EncodingArgs()...)
 	args = append(args, srv.JavaArgs...)
 	args = append(args, "-jar", srv.JarName, "nogui")
 	return java, args, nil
+}
+
+// EncodingArgs pins the JVM's streams to UTF-8.
+//
+// The console reader here assumes the server's output is UTF-8, and on a
+// host whose platform charset is not — a Russian Windows Server, a container
+// with a POSIX locale — a JVM older than 18 writes its log in that charset
+// instead, and every non-ASCII line comes back as replacement characters.
+// Java 18 made file.encoding default to UTF-8, but the panel installs
+// runtimes as old as 8, so it is set explicitly.
+//
+// Both spellings are passed on purpose: stdout.encoding is the supported
+// property from Java 19, sun.stdout.encoding is what earlier versions read.
+// An unrecognised -D is ignored rather than fatal, so passing both costs
+// nothing.
+//
+// Nothing is set for stdin. It was tried, and it turned out not to be needed:
+// a command that looked mangled on the way in was mangled by the test shell
+// sending cp1251, not by the JVM. Flags that fix nothing are worse than no
+// flags, because the next person assumes they are load-bearing.
+func EncodingArgs() []string {
+	return []string{
+		"-Dfile.encoding=UTF-8",
+		"-Dstdout.encoding=UTF-8",
+		"-Dstderr.encoding=UTF-8",
+		"-Dsun.stdout.encoding=UTF-8",
+		"-Dsun.stderr.encoding=UTF-8",
+	}
 }
 
 // ProcessRunner runs each server as a direct child process. It is the runner

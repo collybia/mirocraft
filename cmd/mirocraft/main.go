@@ -19,6 +19,9 @@ import (
 
 	"github.com/collybia/mirocraft/internal/api"
 	"github.com/collybia/mirocraft/internal/config"
+	"github.com/collybia/mirocraft/internal/core"
+	"github.com/collybia/mirocraft/internal/daemon"
+	"github.com/collybia/mirocraft/internal/java"
 	"github.com/collybia/mirocraft/internal/runner"
 	"github.com/collybia/mirocraft/internal/store"
 	"github.com/collybia/mirocraft/web"
@@ -86,6 +89,13 @@ func run() error {
 	}
 	processRunner := runner.NewProcessRunner(log)
 
+	// Core downloads and Java runtimes share the data directory, so a rebuilt
+	// server or a second one on the same version costs nothing.
+	cores := core.DefaultRegistry(nil)
+	downloader := core.NewDownloader(filepath.Join(cfg.DataDir, "cache", "cores"), log)
+	javaMgr := java.NewManager(filepath.Join(cfg.DataDir, "java"), log)
+	provisioner := daemon.NewProvisioner(cores, downloader, javaMgr, log)
+
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
 		return fmt.Errorf("creating data dir %s: %w", cfg.DataDir, err)
 	}
@@ -102,10 +112,15 @@ func run() error {
 		return err
 	}
 
+	// Runtimes installed by an earlier run are found on disk, so a restart
+	// does not re-download what is already there.
+	javaMgr.Scan(context.Background())
+
 	restAPI := api.New(api.Options{
 		Store:       db,
 		Console:     processRunner,
 		Lifecycle:   processRunner,
+		Provisioner: provisioner,
 		Logger:      log,
 		DataDir:     cfg.DataDir,
 		TicketTTL:   cfg.Console.TicketTTL,

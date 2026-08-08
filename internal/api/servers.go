@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/collybia/mirocraft/internal/daemon"
 	"github.com/collybia/mirocraft/internal/mcping"
 	"github.com/collybia/mirocraft/internal/runner"
 	"github.com/collybia/mirocraft/internal/store"
@@ -40,6 +41,13 @@ const (
 // a perfectly good name — hence the alternation rather than a bare
 // start-middle-end pattern, which silently imposed a two-character minimum.
 var serverNamePattern = regexp.MustCompile(`^[a-zA-Z0-9]$|^[a-zA-Z0-9][a-zA-Z0-9 _-]{0,62}[a-zA-Z0-9]$`)
+
+// Provisioner puts a server's core jar and Java runtime in place before it
+// starts. Nil means the daemon runs without one, in which case a start uses
+// whatever the server record already points at.
+type Provisioner interface {
+	Prepare(ctx context.Context, srv *store.Server) (*daemon.Launch, error)
+}
 
 // Lifecycle is the slice of the runner the server endpoints need beyond the
 // console.
@@ -542,12 +550,36 @@ func (a *API) runPower(ctx context.Context, server *store.Server, action string,
 }
 
 func (a *API) startServer(ctx context.Context, server *store.Server) error {
-	err := a.lifecycle.Start(ctx, &runner.Server{
+	launch := &runner.Server{
 		ID: server.ID, Name: server.Name, Dir: server.Dir,
 		Core: server.Core, Version: server.Version, RAMMb: server.RAMMb,
 		JarName: server.JarName, JavaArgs: splitJavaArgs(server.JavaArgs),
-	})
-	if err != nil {
+	}
+
+	// Provisioning downloads the core and the Java runtime on a cold start,
+	// which is why it happens inside the task rather than in the request:
+	// roughly 110 MB the first time, and cached afterwards.
+	if a.provisioner != nil {
+		prepared, err := a.provisioner.Prepare(ctx, server)
+		if err != nil {
+			a.recordStatus(ctx, server.ID, string(runner.StatusCrashed))
+			return err
+		}
+		launch.JarName = prepared.JarName
+		launch.JavaBin = prepared.JavaBin
+
+		// Remembered so the panel can show what is actually installed, and so
+		// a later start knows the jar without asking upstream again.
+		if server.JarName != prepared.JarName {
+			server.JarName = prepared.JarName
+			if err := a.store.Servers.Update(ctx, server); err != nil {
+				a.log.Warn("recording the installed jar failed",
+					slog.String("server_id", server.ID), slog.String("error", err.Error()))
+			}
+		}
+	}
+
+	if err := a.lifecycle.Start(ctx, launch); err != nil {
 		a.recordStatus(ctx, server.ID, string(runner.StatusCrashed))
 		return err
 	}

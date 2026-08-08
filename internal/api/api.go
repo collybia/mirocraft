@@ -25,10 +25,11 @@ const (
 
 // Options configures an API instance.
 type Options struct {
-	Store     *store.Store
-	Console   ConsoleService
-	Lifecycle Lifecycle
-	Logger    *slog.Logger
+	Store       *store.Store
+	Console     ConsoleService
+	Lifecycle   Lifecycle
+	Provisioner Provisioner
+	Logger      *slog.Logger
 
 	// DataDir is where server directories are created.
 	DataDir string
@@ -57,11 +58,12 @@ type Options struct {
 
 // API holds the HTTP handlers and their dependencies.
 type API struct {
-	store     *store.Store
-	console   ConsoleService
-	lifecycle Lifecycle
-	tickets   *TicketStore
-	tasks     *taskRegistry
+	store       *store.Store
+	console     ConsoleService
+	lifecycle   Lifecycle
+	provisioner Provisioner
+	tickets     *TicketStore
+	tasks       *taskRegistry
 
 	dataDir     string
 	portFrom    int
@@ -121,6 +123,7 @@ func New(opts Options) *API {
 		store:        opts.Store,
 		console:      opts.Console,
 		lifecycle:    opts.Lifecycle,
+		provisioner:  opts.Provisioner,
 		tickets:      NewTicketStore(opts.TicketTTL),
 		tasks:        newTaskRegistry(),
 		dataDir:      dataDir,
