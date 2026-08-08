@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,11 +18,11 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/temertika/mirocraft/internal/runner"
+	"github.com/temertika/mirocraft/internal/store"
 )
 
 const (
-	testToken     = "mcr_test_token_value"
-	testUserID    = "user-1"
+	testPassword  = "correct horse battery staple"
 	testServerID  = "01TESTSERVER"
 	otherServerID = "01OTHERSERVER"
 	fakeServerEnv = "MIROCRAFT_FAKE_SERVER"
@@ -72,6 +73,15 @@ type testEnv struct {
 	api    *API
 	server *httptest.Server
 	runner *runner.ProcessRunner
+	db     *store.Store
+
+	user  *store.User
+	other *store.User
+	admin *store.User
+
+	token        string
+	adminToken   string
+	serverRecord *store.Server
 }
 
 func newTestEnv(t *testing.T) *testEnv {
@@ -86,18 +96,13 @@ func newTestEnv(t *testing.T) *testEnv {
 	pr.Build = func(*runner.Server) (string, []string, error) { return self, nil, nil }
 	pr.Env = append(os.Environ(), fakeServerEnv+"=1")
 
-	store := NewMemoryAuth()
-	store.AddToken(testToken, &Principal{
-		UserID: testUserID,
-		Role:   RoleUser,
-		Scopes: []string{ScopeServersRead, ScopeServersConsole},
-	})
-	store.AddServer(&ServerRecord{ID: testServerID, OwnerID: testUserID})
-	store.AddServer(&ServerRecord{ID: otherServerID, OwnerID: "someone-else"})
+	db, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "api.db"))
+	if err != nil {
+		t.Fatalf("opening store: %v", err)
+	}
 
 	a := New(Options{
-		Auth:    store,
-		Servers: store,
+		Store:   db,
 		Console: pr,
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 		// httptest sends no Origin header, so the default same-origin check
@@ -109,9 +114,70 @@ func newTestEnv(t *testing.T) *testEnv {
 	t.Cleanup(func() {
 		srv.Close()
 		_ = pr.Shutdown(context.Background())
+		_ = db.Close()
 	})
 
-	return &testEnv{t: t, api: a, server: srv, runner: pr}
+	env := &testEnv{t: t, api: a, server: srv, runner: pr, db: db}
+	env.seed()
+	return env
+}
+
+// seed creates the fixture accounts and server records the tests share.
+func (e *testEnv) seed() {
+	e.t.Helper()
+	ctx := context.Background()
+
+	hash, err := store.HashPassword(testPassword)
+	if err != nil {
+		e.t.Fatalf("hashing password: %v", err)
+	}
+
+	e.user = &store.User{Email: "owner@example.com", PasswordHash: hash, Role: store.RoleUser}
+	if err := e.db.Users.Create(ctx, e.user); err != nil {
+		e.t.Fatalf("creating user: %v", err)
+	}
+	e.other = &store.User{Email: "other@example.com", PasswordHash: hash, Role: store.RoleUser}
+	if err := e.db.Users.Create(ctx, e.other); err != nil {
+		e.t.Fatalf("creating other user: %v", err)
+	}
+	e.admin = &store.User{Email: "admin@example.com", PasswordHash: hash, Role: store.RoleAdmin}
+	if err := e.db.Users.Create(ctx, e.admin); err != nil {
+		e.t.Fatalf("creating admin: %v", err)
+	}
+
+	e.token = e.mintToken(e.user.ID, []string{ScopeServersRead, ScopeServersConsole})
+	e.adminToken = e.mintToken(e.admin.ID, AllScopes)
+
+	e.serverRecord = &store.Server{
+		ID: testServerID, OwnerID: e.user.ID, Name: "owned", Core: "paper",
+		Version: "1.21.4", RAMMb: 1024, Port: 25565, Dir: e.t.TempDir(),
+	}
+	if err := e.db.Servers.Create(ctx, e.serverRecord); err != nil {
+		e.t.Fatalf("creating server record: %v", err)
+	}
+	if err := e.db.Servers.Create(ctx, &store.Server{
+		ID: otherServerID, OwnerID: e.other.ID, Name: "foreign", Core: "paper",
+		Version: "1.21.4", RAMMb: 1024, Port: 25566, Dir: e.t.TempDir(),
+	}); err != nil {
+		e.t.Fatalf("creating other server record: %v", err)
+	}
+}
+
+// mintToken creates an API token with the given scopes and returns its value.
+func (e *testEnv) mintToken(userID string, scopes []string) string {
+	e.t.Helper()
+
+	value, hash, err := store.GenerateToken()
+	if err != nil {
+		e.t.Fatalf("generating token: %v", err)
+	}
+	err = e.db.Tokens.Create(context.Background(), &store.Token{
+		UserID: userID, Name: "test", Hash: hash, Scopes: scopes, Kind: store.TokenKindAPI,
+	})
+	if err != nil {
+		e.t.Fatalf("creating token: %v", err)
+	}
+	return value
 }
 
 // startServer launches the fake server process and waits until its first line
@@ -224,26 +290,11 @@ func TestConsoleRequiresConsoleScope(t *testing.T) {
 	e := newTestEnv(t)
 	e.startServer(testServerID)
 
-	store := NewMemoryAuth()
-	store.AddToken("read-only", &Principal{
-		UserID: testUserID,
-		Role:   RoleUser,
-		Scopes: []string{ScopeServersRead}, // deliberately no servers:console
-	})
-	store.AddServer(&ServerRecord{ID: testServerID, OwnerID: testUserID})
+	// Deliberately without servers:console.
+	readOnly := e.mintToken(e.user.ID, []string{ScopeServersRead})
 
-	a := New(Options{Auth: store, Servers: store, Console: e.runner,
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
-	srv := httptest.NewServer(a.Handler())
-	defer srv.Close()
-
-	req, _ := http.NewRequest(http.MethodGet,
-		srv.URL+"/api/v1/servers/"+testServerID+"/console/history", nil)
-	req.Header.Set("Authorization", "Bearer read-only")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("request: %v", err)
-	}
+	resp := e.do(http.MethodGet,
+		"/api/v1/servers/"+testServerID+"/console/history", nil, readOnly)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", resp.StatusCode)
 	}
@@ -258,7 +309,7 @@ func TestConsoleHidesOtherUsersServers(t *testing.T) {
 	e := newTestEnv(t)
 	e.startServer(otherServerID)
 
-	resp := e.do(http.MethodGet, "/api/v1/servers/"+otherServerID+"/console/history", nil, testToken)
+	resp := e.do(http.MethodGet, "/api/v1/servers/"+otherServerID+"/console/history", nil, e.token)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
 	}
@@ -273,7 +324,7 @@ func TestConsoleHistoryReturnsBufferedLines(t *testing.T) {
 	e := newTestEnv(t)
 	e.startServer(testServerID)
 
-	resp := e.do(http.MethodGet, "/api/v1/servers/"+testServerID+"/console/history", nil, testToken)
+	resp := e.do(http.MethodGet, "/api/v1/servers/"+testServerID+"/console/history", nil, e.token)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -317,7 +368,7 @@ func TestConsoleHistoryLinesParameter(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := e.do(http.MethodGet,
-				"/api/v1/servers/"+testServerID+"/console/history"+tc.query, nil, testToken)
+				"/api/v1/servers/"+testServerID+"/console/history"+tc.query, nil, e.token)
 			if resp.StatusCode != tc.wantStatus {
 				t.Fatalf("status = %d, want %d", resp.StatusCode, tc.wantStatus)
 			}
@@ -335,26 +386,21 @@ func TestConsoleHistoryLinesParameter(t *testing.T) {
 	}
 }
 
-func TestConsoleHistoryUnknownServer(t *testing.T) {
+// A server that exists in the database but was never started is unknown to the
+// runner, and the console must say so rather than crash.
+func TestConsoleHistoryOnAServerThatIsNotRunning(t *testing.T) {
 	e := newTestEnv(t)
 
-	store := NewMemoryAuth()
-	store.AddToken(testToken, &Principal{UserID: testUserID, Role: RoleUser,
-		Scopes: []string{ScopeServersConsole}})
-	// Registered as a server, but never started: the runner does not know it.
-	store.AddServer(&ServerRecord{ID: "not-started", OwnerID: testUserID})
-
-	a := New(Options{Auth: store, Servers: store, Console: e.runner,
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
-	srv := httptest.NewServer(a.Handler())
-	defer srv.Close()
-
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/servers/not-started/console/history", nil)
-	req.Header.Set("Authorization", "Bearer "+testToken)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("request: %v", err)
+	record := &store.Server{
+		OwnerID: e.user.ID, Name: "not-started", Core: "paper", Version: "1.21.4",
+		RAMMb: 1024, Port: 25999, Dir: t.TempDir(),
 	}
+	if err := e.db.Servers.Create(context.Background(), record); err != nil {
+		t.Fatalf("creating server record: %v", err)
+	}
+
+	resp := e.do(http.MethodGet,
+		"/api/v1/servers/"+record.ID+"/console/history", nil, e.token)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
 	}
@@ -384,7 +430,7 @@ func TestCommandValidation(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := e.do(http.MethodPost, "/api/v1/servers/"+testServerID+"/command",
-				commandRequest{Command: tc.command}, testToken)
+				commandRequest{Command: tc.command}, e.token)
 			if resp.StatusCode != tc.wantStatus {
 				t.Fatalf("status = %d, want %d", resp.StatusCode, tc.wantStatus)
 			}
@@ -406,7 +452,7 @@ func TestCommandRejectsMalformedBody(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPost,
 		e.server.URL+"/api/v1/servers/"+testServerID+"/command",
 		strings.NewReader("this is not json"))
-	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Authorization", "Bearer "+e.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -427,7 +473,7 @@ func TestConsoleTicketEndpoint(t *testing.T) {
 	e := newTestEnv(t)
 	e.startServer(testServerID)
 
-	resp := e.do(http.MethodPost, "/api/v1/servers/"+testServerID+"/console/ticket", nil, testToken)
+	resp := e.do(http.MethodPost, "/api/v1/servers/"+testServerID+"/console/ticket", nil, e.token)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", resp.StatusCode)
 	}
@@ -449,7 +495,7 @@ func TestConsoleTicketEndpoint(t *testing.T) {
 func (e *testEnv) issueTicket(serverID string) string {
 	e.t.Helper()
 
-	resp := e.do(http.MethodPost, "/api/v1/servers/"+serverID+"/console/ticket", nil, testToken)
+	resp := e.do(http.MethodPost, "/api/v1/servers/"+serverID+"/console/ticket", nil, e.token)
 	if resp.StatusCode != http.StatusCreated {
 		e.t.Fatalf("issuing ticket: status %d", resp.StatusCode)
 	}
@@ -605,7 +651,7 @@ func TestConsoleCommandOverHTTPAppearsInWebSocketAndHistory(t *testing.T) {
 
 	const command = "say integration"
 	resp := e.do(http.MethodPost, "/api/v1/servers/"+testServerID+"/command",
-		commandRequest{Command: command}, testToken)
+		commandRequest{Command: command}, e.token)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("command status = %d, want 204", resp.StatusCode)
 	}
@@ -620,7 +666,7 @@ func TestConsoleCommandOverHTTPAppearsInWebSocketAndHistory(t *testing.T) {
 	}
 
 	historyResp := e.do(http.MethodGet,
-		"/api/v1/servers/"+testServerID+"/console/history", nil, testToken)
+		"/api/v1/servers/"+testServerID+"/console/history", nil, e.token)
 	if historyResp.StatusCode != http.StatusOK {
 		t.Fatalf("history status = %d, want 200", historyResp.StatusCode)
 	}
@@ -775,7 +821,7 @@ func TestConsoleWebSocketFanOutToMultipleViewers(t *testing.T) {
 
 	const command = "say everyone"
 	resp := e.do(http.MethodPost, "/api/v1/servers/"+testServerID+"/command",
-		commandRequest{Command: command}, testToken)
+		commandRequest{Command: command}, e.token)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("command status = %d, want 204", resp.StatusCode)
 	}
@@ -801,4 +847,17 @@ func TestHealthEndpointNeedsNoAuth(t *testing.T) {
 	if body.Status != "ok" {
 		t.Fatalf("status field = %q, want ok", body.Status)
 	}
+}
+
+// decodeJSONRaw returns the response body as text, for assertions about what
+// must not appear in it.
+func decodeJSONRaw(t *testing.T, resp *http.Response) string {
+	t.Helper()
+	defer func() { _ = resp.Body.Close() }()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading response: %v", err)
+	}
+	return string(raw)
 }

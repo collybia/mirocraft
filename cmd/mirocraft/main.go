@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,12 +13,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/temertika/mirocraft/internal/api"
 	"github.com/temertika/mirocraft/internal/config"
 	"github.com/temertika/mirocraft/internal/runner"
+	"github.com/temertika/mirocraft/internal/store"
 )
 
 // version is stamped at build time with -ldflags.
@@ -81,14 +85,24 @@ func run() error {
 	}
 	processRunner := runner.NewProcessRunner(log)
 
-	// The in-memory auth store is a placeholder until the SQLite store lands
-	// in task 1.1. It starts empty, so the API rejects every request until
-	// then — deliberately, rather than shipping a default credential.
-	store := api.NewMemoryAuth()
+	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
+		return fmt.Errorf("creating data dir %s: %w", cfg.DataDir, err)
+	}
+
+	dbPath := filepath.Join(cfg.DataDir, "mirocraft.db")
+	db, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	log.Info("database ready", slog.String("path", dbPath))
+
+	if err := bootstrapAdmin(context.Background(), db, log); err != nil {
+		return err
+	}
 
 	restAPI := api.New(api.Options{
-		Auth:      store,
-		Servers:   store,
+		Store:     db,
 		Console:   processRunner,
 		Logger:    log,
 		TicketTTL: cfg.Console.TicketTTL,
@@ -136,6 +150,63 @@ func run() error {
 
 	log.Info("stopped")
 	return nil
+}
+
+// bootstrapAdmin creates the first administrator on an empty database and
+// prints the generated password once.
+//
+// The password is generated rather than defaulted: a well-known first-run
+// credential on a panel that is, by design, reachable from the internet is a
+// standing invitation.
+func bootstrapAdmin(ctx context.Context, db *store.Store, log *slog.Logger) error {
+	count, err := db.Users.Count(ctx)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	password, err := generatePassword()
+	if err != nil {
+		return err
+	}
+	hash, err := store.HashPassword(password)
+	if err != nil {
+		return err
+	}
+
+	admin := &store.User{Email: "admin@localhost", PasswordHash: hash, Role: store.RoleAdmin}
+	if err := db.Users.Create(ctx, admin); err != nil {
+		return fmt.Errorf("creating the first admin: %w", err)
+	}
+
+	// Straight to stdout, not the logger: this must not end up in a log
+	// aggregator, and it is shown exactly once.
+	// Deliberately without box drawing: aligning a frame around text that
+	// mixes Cyrillic and generated tokens breaks in every terminal that
+	// disagrees about character width.
+	fmt.Println()
+	fmt.Println("  ── Первый запуск: создан администратор ──")
+	fmt.Println()
+	fmt.Println("     Логин:  " + admin.Email)
+	fmt.Println("     Пароль: " + password)
+	fmt.Println()
+	fmt.Println("  Пароль показывается один раз. Сохраните его")
+	fmt.Println("  и смените после первого входа.")
+	fmt.Println()
+
+	log.Info("first admin account created", slog.String("email", admin.Email))
+	return nil
+}
+
+// generatePassword returns a random password of roughly 128 bits of entropy.
+func generatePassword() (string, error) {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generating a password: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
 // applyFlagOverrides copies the values of flags that were actually set on the

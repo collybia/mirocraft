@@ -179,14 +179,5 @@ func TestTicketStoreConcurrentUse(t *testing.T) {
 	}
 }
 
-func TestHashTokenIsStableAndDistinct(t *testing.T) {
-	if HashToken("abc") != HashToken("abc") {
-		t.Fatal("HashToken is not deterministic")
-	}
-	if HashToken("abc") == HashToken("abd") {
-		t.Fatal("HashToken collided on different inputs")
-	}
-	if HashToken("abc") == "abc" {
-		t.Fatal("HashToken returned the raw token")
-	}
-}
+// Token hashing now lives in the store, where it is tested alongside the
+// repository that persists it.

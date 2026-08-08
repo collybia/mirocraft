@@ -32,12 +32,11 @@
 
 ## Фаза 2 — API
 
-- [ ] 2.1 Каркас API: роутер, middleware (auth, logging, rate limit), эндпоинты
+- [x] 2.1 Каркас API: роутер, middleware (auth, logging, rate limit), эндпоинты
       /auth/login, /users (admin), выдача и отзыв токенов.
-      ЧАСТИЧНО: вместе с 2.3 уже сделаны роутер, Bearer-аутентификация, scope и
-      проверка владения сервером, формат ошибок, /health. Осталось: /auth/login,
-      /auth/tokens, /users, rate limit, logging-middleware и замена временного
-      in-memory хранилища (api.MemoryAuth) на SQLite-стор из 1.1
+      Плюс: bootstrap первого админа со сгенерированным паролем при пустой базе,
+      аудит-лог на мутирующих действиях, эндпоинты тем (/themes, /users/me/themes)
+      с валидацией импорта — бэкенд под 3.7/3.8
 - [ ] 2.2 Эндпоинты серверов: CRUD, start/stop/restart/kill, статус с метриками
       (RAM, uptime, игроки через query-протокол)
 - [x] 2.3 WebSocket консоли: стрим логов + отправка команд, история последних 500 строк
