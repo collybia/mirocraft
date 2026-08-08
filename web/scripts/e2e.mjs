@@ -221,6 +221,22 @@ try {
     (await page.locator("textarea, .card").count()) > 0);
   await shoot(page, "11-settings");
 
+  /* --- add-on catalogue ---
+   *
+   * The search itself needs Modrinth, which a CI box may not be able to
+   * reach, so what is asserted here is everything up to that: the tab knows
+   * what the server's core accepts. A search that fails offline should not
+   * fail the whole run.
+   */
+
+  await page.click('button:has-text("Дополнения")');
+  await page.waitForSelector("text=Установлено", { timeout: 20000 });
+  check("the catalogue tab reports what this core accepts",
+    (await page.locator("text=paper ·").count()) > 0);
+  check("a server with nothing installed says so",
+    (await page.locator("text=Пока ничего не установлено").count()) > 0);
+  await shoot(page, "12-catalog");
+
   check("the page produced no uncaught errors", consoleErrors.length === 0, consoleErrors.join("; "));
 
   /* --- API documentation ---
@@ -259,7 +275,7 @@ try {
   check("the docs page loads nothing from outside this daemon",
     offHost.length === 0, offHost.join(", "));
 
-  await shoot(docs, "12-api-docs");
+  await shoot(docs, "13-api-docs");
   await docs.close();
 } catch (err) {
   console.error(`FAIL unexpected error — ${err.message}`);

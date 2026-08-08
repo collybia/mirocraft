@@ -66,6 +66,15 @@ func (p *Paper) Kind() Kind {
 }
 func (p *Paper) Runtime() Runtime { return RuntimeJava }
 
+// Content reports where this project's add-ons go.
+//
+// A proxy takes plugins too, but its own: a Velocity plugin and a Paper plugin
+// are different things that happen to share a folder name, which is why the
+// loader is the project id rather than a constant.
+func (p *Paper) Content() Content {
+	return Content{Loader: p.Project, Dir: "plugins"}
+}
+
 // paperProject is the project document. Versions are grouped by family:
 // {"26.2": ["26.2", "26.2-rc-2"], "1.21": ["1.21.11", ...]}.
 type paperProject struct {

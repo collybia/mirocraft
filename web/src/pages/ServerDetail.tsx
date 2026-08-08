@@ -2,16 +2,18 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { useNavigate, useParams } from "react-router-dom";
 
 import * as api from "../lib/api";
+import { ServerCatalog } from "./ServerCatalog";
 import { ServerFiles } from "./ServerFiles";
 import { ServerSettings } from "./ServerSettings";
 import { StatusBadge } from "./Servers";
 
-type Tab = "console" | "files" | "settings";
+type Tab = "console" | "files" | "settings" | "catalog";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "console", label: "Консоль" },
   { id: "files", label: "Файлы" },
   { id: "settings", label: "Настройки" },
+  { id: "catalog", label: "Дополнения" },
 ];
 
 /** How many lines the console keeps in the DOM. */
@@ -267,6 +269,7 @@ export function ServerDetail() {
 
       {tab === "files" && <ServerFiles serverId={id} />}
       {tab === "settings" && <ServerSettings serverId={id} />}
+      {tab === "catalog" && <ServerCatalog serverId={id} />}
 
       {/*
         The console stays mounted while other tabs are shown, only hidden: it

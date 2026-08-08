@@ -130,6 +130,7 @@ func (s stubProvider) ID() string                                  { return s.id
 func (s stubProvider) Name() string                                { return s.id }
 func (s stubProvider) Kind() Kind                                  { return s.kind }
 func (s stubProvider) Runtime() Runtime                            { return RuntimeJava }
+func (s stubProvider) Content() Content                            { return Content{} }
 func (s stubProvider) Versions(context.Context) ([]Version, error) { return nil, nil }
 func (s stubProvider) Resolve(context.Context, string) (*Build, error) {
 	return nil, ErrUnknownVersion

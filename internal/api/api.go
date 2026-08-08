@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/collybia/mirocraft/internal/backup"
+	"github.com/collybia/mirocraft/internal/core"
 	"github.com/collybia/mirocraft/internal/events"
 	"github.com/collybia/mirocraft/internal/store"
 )
@@ -41,6 +42,12 @@ type Options struct {
 	// Backups archives and restores server directories. Nil disables the
 	// backup endpoints rather than failing them obscurely.
 	Backups *backup.Manager
+
+	// Cores is the registry the catalogue asks which loader a server takes.
+	Cores *core.Registry
+	// Catalog searches and resolves add-ons. Nil disables the catalogue
+	// endpoints rather than failing them obscurely.
+	Catalog Catalog
 
 	// Events is the bus the panel and the webhooks read. Nil creates one.
 	Events *events.Bus
@@ -77,6 +84,8 @@ type API struct {
 	lifecycle   Lifecycle
 	provisioner Provisioner
 	backups     *backup.Manager
+	cores       *core.Registry
+	catalog     Catalog
 	events      *events.Bus
 	ping        Pinger
 	tickets     *TicketStore
@@ -152,6 +161,8 @@ func New(opts Options) *API {
 		provisioner:  opts.Provisioner,
 		ping:         opts.Ping,
 		backups:      opts.Backups,
+		cores:        opts.Cores,
+		catalog:      opts.Catalog,
 		events:       bus,
 		tickets:      NewTicketStore(opts.TicketTTL),
 		tasks:        newTaskRegistry(),
@@ -200,71 +211,78 @@ func (a *API) ownerOf(serverID string) string {
 // authedRoutes are the routes behind a bearer token.
 func (a *API) authedRoutes() map[string]http.HandlerFunc {
 	return map[string]http.HandlerFunc{
-		"POST /api/v1/auth/logout":                        a.handleLogout,
-		"POST /api/v1/auth/refresh":                       a.handleRefresh,
-		"GET /api/v1/auth/me":                             a.handleMe,
-		"GET /api/v1/auth/tokens":                         a.handleListTokens,
-		"POST /api/v1/auth/tokens":                        a.handleCreateToken,
-		"DELETE /api/v1/auth/tokens/{id}":                 a.handleDeleteToken,
-		"GET /api/v1/users/me":                            a.handleMe,
-		"PATCH /api/v1/users/me":                          a.handlePatchMe,
-		"GET /api/v1/users/me/themes":                     a.handleListCustomThemes,
-		"POST /api/v1/users/me/themes":                    a.handleCreateCustomTheme,
-		"PATCH /api/v1/users/me/themes/{tid}":             a.handlePatchCustomTheme,
-		"DELETE /api/v1/users/me/themes/{tid}":            a.handleDeleteCustomTheme,
-		"GET /api/v1/servers":                             a.handleListServers,
-		"POST /api/v1/servers":                            a.handleCreateServer,
-		"GET /api/v1/servers/{id}":                        a.handleGetServer,
-		"PATCH /api/v1/servers/{id}":                      a.handlePatchServer,
-		"DELETE /api/v1/servers/{id}":                     a.handleDeleteServer,
-		"POST /api/v1/servers/{id}/power":                 a.handlePower,
-		"GET /api/v1/servers/{id}/tasks":                  a.handleListServerTasks,
-		"GET /api/v1/tasks/{id}":                          a.handleGetTask,
-		"POST /api/v1/events/ticket":                      a.handleEventsTicket,
-		"GET /api/v1/webhooks":                            a.handleListWebhooks,
-		"POST /api/v1/webhooks":                           a.handleCreateWebhook,
-		"DELETE /api/v1/webhooks/{id}":                    a.handleDeleteWebhook,
-		"POST /api/v1/webhooks/{id}/test":                 a.handleTestWebhook,
-		"GET /api/v1/servers/{id}/players":                a.handleListPlayers,
-		"POST /api/v1/servers/{id}/players/{name}/kick":   a.handleKickPlayer,
-		"POST /api/v1/servers/{id}/players/{name}/ban":    a.handleBanPlayer,
-		"DELETE /api/v1/servers/{id}/players/{name}/ban":  a.handleUnbanPlayer,
-		"GET /api/v1/servers/{id}/bans":                   a.handleListBans,
-		"GET /api/v1/servers/{id}/whitelist":              a.handleGetWhitelist,
-		"POST /api/v1/servers/{id}/whitelist":             a.handleAddToWhitelist,
-		"PATCH /api/v1/servers/{id}/whitelist":            a.handleSetWhitelistState,
-		"DELETE /api/v1/servers/{id}/whitelist/{name}":    a.handleRemoveFromWhitelist,
-		"GET /api/v1/servers/{id}/ops":                    a.handleListOps,
-		"POST /api/v1/servers/{id}/ops":                   a.handleAddOp,
-		"DELETE /api/v1/servers/{id}/ops/{name}":          a.handleRemoveOp,
-		"GET /api/v1/servers/{id}/settings":               a.handleGetSettings,
-		"PATCH /api/v1/servers/{id}/settings":             a.handlePatchSettings,
-		"GET /api/v1/servers/{id}/backups":                a.handleListBackups,
-		"POST /api/v1/servers/{id}/backups":               a.handleCreateBackup,
-		"GET /api/v1/servers/{id}/backups/schedule":       a.handleGetSchedule,
-		"PUT /api/v1/servers/{id}/backups/schedule":       a.handlePutSchedule,
-		"GET /api/v1/servers/{id}/schedules":              a.handleListSchedules,
-		"POST /api/v1/servers/{id}/schedules":             a.handleCreateSchedule,
-		"PATCH /api/v1/servers/{id}/schedules/{sid}":      a.handlePatchSchedule,
-		"DELETE /api/v1/servers/{id}/schedules/{sid}":     a.handleDeleteSchedule,
-		"POST /api/v1/servers/{id}/schedules/{sid}/run":   a.handleRunSchedule,
-		"GET /api/v1/servers/{id}/backups/{bid}/download": a.handleDownloadBackup,
-		"POST /api/v1/servers/{id}/backups/{bid}/restore": a.handleRestoreBackup,
-		"DELETE /api/v1/servers/{id}/backups/{bid}":       a.handleDeleteBackup,
-		"GET /api/v1/servers/{id}/files":                  a.handleListFiles,
-		"DELETE /api/v1/servers/{id}/files":               a.handleDeleteFile,
-		"GET /api/v1/servers/{id}/files/content":          a.handleReadFile,
-		"PUT /api/v1/servers/{id}/files/content":          a.handleWriteFile,
-		"GET /api/v1/servers/{id}/files/download":         a.handleDownloadFile,
-		"POST /api/v1/servers/{id}/files/upload":          a.handleUploadFile,
-		"POST /api/v1/servers/{id}/files/mkdir":           a.handleMkdir,
-		"POST /api/v1/servers/{id}/files/move":            a.handleMoveFile,
-		"POST /api/v1/servers/{id}/files/copy":            a.handleCopyFile,
-		"POST /api/v1/servers/{id}/files/archive":         a.handleArchive,
-		"POST /api/v1/servers/{id}/files/unarchive":       a.handleUnarchive,
-		"GET /api/v1/servers/{id}/console/history":        a.handleConsoleHistory,
-		"POST /api/v1/servers/{id}/command":               a.handleCommand,
-		"POST /api/v1/servers/{id}/console/ticket":        a.handleConsoleTicket,
+		"POST /api/v1/auth/logout":                          a.handleLogout,
+		"POST /api/v1/auth/refresh":                         a.handleRefresh,
+		"GET /api/v1/auth/me":                               a.handleMe,
+		"GET /api/v1/auth/tokens":                           a.handleListTokens,
+		"POST /api/v1/auth/tokens":                          a.handleCreateToken,
+		"DELETE /api/v1/auth/tokens/{id}":                   a.handleDeleteToken,
+		"GET /api/v1/users/me":                              a.handleMe,
+		"PATCH /api/v1/users/me":                            a.handlePatchMe,
+		"GET /api/v1/users/me/themes":                       a.handleListCustomThemes,
+		"POST /api/v1/users/me/themes":                      a.handleCreateCustomTheme,
+		"PATCH /api/v1/users/me/themes/{tid}":               a.handlePatchCustomTheme,
+		"DELETE /api/v1/users/me/themes/{tid}":              a.handleDeleteCustomTheme,
+		"GET /api/v1/servers":                               a.handleListServers,
+		"POST /api/v1/servers":                              a.handleCreateServer,
+		"GET /api/v1/servers/{id}":                          a.handleGetServer,
+		"PATCH /api/v1/servers/{id}":                        a.handlePatchServer,
+		"DELETE /api/v1/servers/{id}":                       a.handleDeleteServer,
+		"POST /api/v1/servers/{id}/power":                   a.handlePower,
+		"GET /api/v1/servers/{id}/tasks":                    a.handleListServerTasks,
+		"GET /api/v1/tasks/{id}":                            a.handleGetTask,
+		"POST /api/v1/events/ticket":                        a.handleEventsTicket,
+		"GET /api/v1/webhooks":                              a.handleListWebhooks,
+		"POST /api/v1/webhooks":                             a.handleCreateWebhook,
+		"DELETE /api/v1/webhooks/{id}":                      a.handleDeleteWebhook,
+		"POST /api/v1/webhooks/{id}/test":                   a.handleTestWebhook,
+		"GET /api/v1/servers/{id}/players":                  a.handleListPlayers,
+		"POST /api/v1/servers/{id}/players/{name}/kick":     a.handleKickPlayer,
+		"POST /api/v1/servers/{id}/players/{name}/ban":      a.handleBanPlayer,
+		"DELETE /api/v1/servers/{id}/players/{name}/ban":    a.handleUnbanPlayer,
+		"GET /api/v1/servers/{id}/bans":                     a.handleListBans,
+		"GET /api/v1/servers/{id}/whitelist":                a.handleGetWhitelist,
+		"POST /api/v1/servers/{id}/whitelist":               a.handleAddToWhitelist,
+		"PATCH /api/v1/servers/{id}/whitelist":              a.handleSetWhitelistState,
+		"DELETE /api/v1/servers/{id}/whitelist/{name}":      a.handleRemoveFromWhitelist,
+		"GET /api/v1/servers/{id}/ops":                      a.handleListOps,
+		"POST /api/v1/servers/{id}/ops":                     a.handleAddOp,
+		"DELETE /api/v1/servers/{id}/ops/{name}":            a.handleRemoveOp,
+		"GET /api/v1/servers/{id}/settings":                 a.handleGetSettings,
+		"PATCH /api/v1/servers/{id}/settings":               a.handlePatchSettings,
+		"GET /api/v1/servers/{id}/backups":                  a.handleListBackups,
+		"POST /api/v1/servers/{id}/backups":                 a.handleCreateBackup,
+		"GET /api/v1/servers/{id}/backups/schedule":         a.handleGetSchedule,
+		"PUT /api/v1/servers/{id}/backups/schedule":         a.handlePutSchedule,
+		"GET /api/v1/catalog/search":                        a.handleCatalogSearch,
+		"GET /api/v1/catalog/projects/{pid}":                a.handleCatalogProject,
+		"GET /api/v1/servers/{id}/catalog":                  a.handleServerContent,
+		"POST /api/v1/servers/{id}/catalog/install":         a.handleCatalogInstall,
+		"GET /api/v1/servers/{id}/installed":                a.handleListInstalled,
+		"DELETE /api/v1/servers/{id}/installed/{file}":      a.handleDeleteInstalled,
+		"POST /api/v1/servers/{id}/installed/{file}/toggle": a.handleToggleInstalled,
+		"GET /api/v1/servers/{id}/schedules":                a.handleListSchedules,
+		"POST /api/v1/servers/{id}/schedules":               a.handleCreateSchedule,
+		"PATCH /api/v1/servers/{id}/schedules/{sid}":        a.handlePatchSchedule,
+		"DELETE /api/v1/servers/{id}/schedules/{sid}":       a.handleDeleteSchedule,
+		"POST /api/v1/servers/{id}/schedules/{sid}/run":     a.handleRunSchedule,
+		"GET /api/v1/servers/{id}/backups/{bid}/download":   a.handleDownloadBackup,
+		"POST /api/v1/servers/{id}/backups/{bid}/restore":   a.handleRestoreBackup,
+		"DELETE /api/v1/servers/{id}/backups/{bid}":         a.handleDeleteBackup,
+		"GET /api/v1/servers/{id}/files":                    a.handleListFiles,
+		"DELETE /api/v1/servers/{id}/files":                 a.handleDeleteFile,
+		"GET /api/v1/servers/{id}/files/content":            a.handleReadFile,
+		"PUT /api/v1/servers/{id}/files/content":            a.handleWriteFile,
+		"GET /api/v1/servers/{id}/files/download":           a.handleDownloadFile,
+		"POST /api/v1/servers/{id}/files/upload":            a.handleUploadFile,
+		"POST /api/v1/servers/{id}/files/mkdir":             a.handleMkdir,
+		"POST /api/v1/servers/{id}/files/move":              a.handleMoveFile,
+		"POST /api/v1/servers/{id}/files/copy":              a.handleCopyFile,
+		"POST /api/v1/servers/{id}/files/archive":           a.handleArchive,
+		"POST /api/v1/servers/{id}/files/unarchive":         a.handleUnarchive,
+		"GET /api/v1/servers/{id}/console/history":          a.handleConsoleHistory,
+		"POST /api/v1/servers/{id}/command":                 a.handleCommand,
+		"POST /api/v1/servers/{id}/console/ticket":          a.handleConsoleTicket,
 	}
 }
 

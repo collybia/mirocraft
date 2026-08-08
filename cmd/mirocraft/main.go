@@ -19,6 +19,7 @@ import (
 
 	"github.com/collybia/mirocraft/internal/api"
 	"github.com/collybia/mirocraft/internal/backup"
+	"github.com/collybia/mirocraft/internal/catalog"
 	"github.com/collybia/mirocraft/internal/config"
 	"github.com/collybia/mirocraft/internal/core"
 	"github.com/collybia/mirocraft/internal/daemon"
@@ -100,6 +101,12 @@ func run() error {
 	provisioner.SkipHostJava = selected.docker != nil
 	backups := backup.NewManager(filepath.Join(cfg.DataDir, "backups"), log)
 
+	// The add-on catalogue identifies itself to Modrinth with this build's
+	// version: their guidelines ask for a contactable agent, and an anonymous
+	// client is the first thing rate-limited when someone abuses the API.
+	catalog.UserAgent = "mirocraft/" + version + " (+https://github.com/collybia/mirocraft)"
+	addons := catalog.New(nil)
+
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
 		return fmt.Errorf("creating data dir %s: %w", cfg.DataDir, err)
 	}
@@ -134,6 +141,8 @@ func run() error {
 		Lifecycle:   selected.runner,
 		Provisioner: provisioner,
 		Backups:     backups,
+		Cores:       cores,
+		Catalog:     addons,
 		Logger:      log,
 		DataDir:     cfg.DataDir,
 		TicketTTL:   cfg.Console.TicketTTL,

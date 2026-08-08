@@ -66,6 +66,8 @@ tags:
     description: server.properties
   - name: schedules
     description: cron-цепочки действий
+  - name: catalog
+    description: поиск и установка плагинов и модов
   - name: events
     description: шина событий и вебхуки
   - name: tasks
@@ -1352,6 +1354,197 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  # --- catalogue ---
+
+  /catalog/search:
+    get:
+      tags: [catalog]
+      summary: Поиск дополнений
+      description: |
+        Прокси к Modrinth с кэшем. Modrinth — потому что это единственный из
+        трёх крупных источников с документированным API без ключа: CurseForge
+        требует ключ на каждую установку, чего self-hosted панель раздать не
+        может, а у SpigotMC API нет вовсе.
+
+        Проекты, помеченные `server_side: unsupported`, отфильтрованы: чисто
+        клиентский мод на сервере не делает ничего, и предлагать его значит
+        обещать то, чего не будет.
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: строка поиска }
+        - name: type
+          in: query
+          schema: { type: string, enum: [mod, modpack, resourcepack, datapack, shader] }
+        - name: loader
+          in: query
+          description: paper, fabric, forge и т.д. — обычно берётся из /servers/{id}/catalog
+          schema: { type: string }
+        - { name: mc, in: query, schema: { type: string, example: "1.21.4" } }
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 50 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+      responses:
+        "200":
+          description: найденные проекты
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CatalogSearchResult" }
+        "429":
+          description: реестр ограничивает частоту; ошибка передаётся как есть, чтобы клиент знал, что можно повторить
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: реестр недоступен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: каталог не настроен на этом узле
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /catalog/projects/{pid}:
+    get:
+      tags: [catalog]
+      summary: Детали проекта и его версии
+      parameters:
+        - { name: pid, in: path, required: true, schema: { type: string }, description: id или slug }
+        - { name: loader, in: query, schema: { type: string } }
+        - { name: mc, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: проект и подходящие версии
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project: { $ref: "#/components/schemas/CatalogProject" }
+                  versions:
+                    type: array
+                    items: { $ref: "#/components/schemas/CatalogVersion" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /servers/{id}/catalog:
+    get:
+      tags: [catalog]
+      summary: Что это ядро принимает
+      description: |
+        Панель спрашивает до поиска: какой загрузчик фильтровать и берёт ли
+        ядро дополнения вообще. Пустой `loader` — это ответ, а не ошибка:
+        рядом с vanilla-сервером jar никогда не будет прочитан, и «установлено
+        успешно, ничего не делает» — худший из возможных исходов.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: загрузчик, каталог и версия Minecraft
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServerContent" }
+
+  /servers/{id}/catalog/install:
+    post:
+      tags: [catalog]
+      summary: Установить дополнение
+      description: |
+        Требует `files:write`: это запись файлов в каталог сервера, и именно
+        это право ею управляет.
+
+        Обязательные зависимости ставятся вместе с проектом; необязательные —
+        нет: «работает лучше с» не повод класть оператору плагины, которых он
+        не выбирал. Встроенные тоже пропускаются — иначе получится две копии
+        одних классов.
+
+        Загруженное сверяется с контрольной суммой, опубликованной реестром:
+        jar, не совпавший с ней, — не тот jar, который проверяли.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string }
+                version_id:
+                  type: string
+                  description: пусто — берётся новейший релиз под загрузчик и версию
+                dry_run:
+                  type: boolean
+                  description: только посчитать план, ничего не скачивая
+      responses:
+        "200":
+          description: план установки (dry_run)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstallPlan" }
+        "202":
+          description: задача принята
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: { type: string }
+                  plan: { $ref: "#/components/schemas/InstallPlan" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /servers/{id}/installed:
+    get:
+      tags: [catalog]
+      summary: Установленные дополнения
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: список
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/InstalledAddon" }
+
+  /servers/{id}/installed/{file}:
+    delete:
+      tags: [catalog]
+      summary: Удалить дополнение
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/PathAddonFile" }
+      responses:
+        "204": { description: удалено }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /servers/{id}/installed/{file}/toggle:
+    post:
+      tags: [catalog]
+      summary: Включить или выключить дополнение
+      description: |
+        Переименованием `.jar` ↔ `.jar.disabled`, а не переносом в папку:
+        сервер решает, что грузить, по окончанию имени, и это то же, что
+        оператор делает руками.
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/PathAddonFile" }
+      responses:
+        "200":
+          description: новое состояние
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file: { type: string }
+                  enabled: { type: boolean }
+                  restart_required:
+                    type: boolean
+                    description: сервер читает каталог плагинов один раз, при старте
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
   # --- events ---
 
   /events/ticket:
@@ -1484,6 +1677,14 @@ components:
       in: path
       required: true
       schema: { $ref: "#/components/schemas/PlayerName" }
+    PathAddonFile:
+      name: file
+      in: path
+      required: true
+      description: |
+        имя файла в каталоге дополнений, включая суффикс .disabled у
+        выключенного. Только имя: путь здесь отвергается
+      schema: { type: string, example: EssentialsX-2.21.0.jar }
     FilePath:
       name: path
       in: query
@@ -1883,6 +2084,113 @@ components:
         last_success_at: { type: string, format: date-time, nullable: true }
         failure_count: { type: integer }
         created_at: { type: string, format: date-time }
+
+    CatalogProject:
+      type: object
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        description: { type: string }
+        type: { type: string, example: mod }
+        downloads: { type: integer }
+        icon_url: { type: string }
+        categories: { type: array, items: { type: string } }
+        loaders: { type: array, items: { type: string } }
+        license: { type: string, example: GPL-3.0-only }
+        server_side: { type: string, enum: [required, optional, unsupported] }
+        client_side: { type: string, enum: [required, optional, unsupported] }
+        body: { type: string, description: длинное описание, только в деталях }
+
+    CatalogSearchResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/CatalogProject" }
+        total: { type: integer }
+        offset: { type: integer }
+
+    CatalogVersion:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        name: { type: string }
+        number: { type: string, example: "2.21.0" }
+        channel: { type: string, enum: [release, beta, alpha] }
+        loaders: { type: array, items: { type: string } }
+        game_versions: { type: array, items: { type: string } }
+        published_at: { type: string, format: date-time }
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              url: { type: string, format: uri }
+              size: { type: integer }
+              primary:
+                type: boolean
+                description: |
+                  версия может публиковать исходники рядом с артефактом;
+                  ставится помеченный основным
+              sha512: { type: string }
+              sha1: { type: string }
+
+    ServerContent:
+      type: object
+      properties:
+        loader:
+          type: string
+          description: пусто — ядро не принимает дополнений
+          example: paper
+        dir: { type: string, example: plugins }
+        version: { type: string, example: "1.21.4" }
+
+    InstallPlan:
+      type: object
+      description: что именно принесёт установка, до того как она начнётся
+      properties:
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              project_id: { type: string }
+              project_title: { type: string }
+              version_id: { type: string }
+              version_name: { type: string }
+              file_name: { type: string }
+              url: { type: string, format: uri }
+              size_bytes: { type: integer }
+              sha512: { type: string }
+              sha1: { type: string }
+              dependency:
+                type: boolean
+                description: файл притянут зависимостью, а не запрошен
+        skipped:
+          type: array
+          description: |
+            требования, которые не удалось выполнить. Сообщаются, а не
+            проглатываются: плагин без обязательной библиотеки падает при
+            старте сервера, и узнать сейчас дешевле
+          items:
+            type: object
+            properties:
+              project_id: { type: string }
+              reason: { type: string }
+
+    InstalledAddon:
+      type: object
+      properties:
+        file:
+          type: string
+          description: имя на диске, с суффиксом .disabled у выключенного
+        name: { type: string, description: имя без расширения }
+        size_bytes: { type: integer }
+        enabled: { type: boolean }
+        modified_at: { type: string, format: date-time }
 
     Event:
       type: object

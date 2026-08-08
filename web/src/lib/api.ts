@@ -436,6 +436,134 @@ export function patchSettings(id: string, values: Record<string, string>): Promi
   });
 }
 
+/* --- add-on catalogue --- */
+
+export interface CatalogProject {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  type: string;
+  downloads: number;
+  icon_url?: string;
+  categories?: string[];
+  loaders?: string[];
+  license?: string;
+  server_side?: string;
+  client_side?: string;
+  body?: string;
+}
+
+export interface CatalogVersion {
+  id: string;
+  project_id: string;
+  name: string;
+  number: string;
+  channel: "release" | "beta" | "alpha";
+  loaders: string[];
+  game_versions: string[];
+  published_at?: string;
+}
+
+export interface ServerContent {
+  /** Empty when the core takes no add-ons at all. */
+  loader: string;
+  dir: string;
+  version: string;
+}
+
+export interface PlannedFile {
+  project_id: string;
+  project_title: string;
+  version_id: string;
+  version_name: string;
+  file_name: string;
+  size_bytes: number;
+  dependency: boolean;
+}
+
+export interface InstallPlan {
+  files: PlannedFile[];
+  skipped?: { project_id: string; reason: string }[];
+}
+
+export interface InstalledAddon {
+  file: string;
+  name: string;
+  size_bytes: number;
+  enabled: boolean;
+  modified_at: string;
+}
+
+export function serverContent(id: string): Promise<ServerContent> {
+  return request<ServerContent>(`/servers/${id}/catalog`);
+}
+
+export function searchCatalog(params: {
+  q: string;
+  loader?: string;
+  mc?: string;
+  type?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ items: CatalogProject[]; total: number; offset: number }> {
+  const query = new URLSearchParams({ q: params.q });
+  if (params.loader) query.set("loader", params.loader);
+  if (params.mc) query.set("mc", params.mc);
+  if (params.type) query.set("type", params.type);
+  if (params.limit) query.set("limit", String(params.limit));
+  if (params.offset) query.set("offset", String(params.offset));
+
+  return request<{ items: CatalogProject[]; total: number; offset: number }>(
+    `/catalog/search?${query.toString()}`,
+  );
+}
+
+export function catalogProject(
+  pid: string,
+  loader?: string,
+  mc?: string,
+): Promise<{ project: CatalogProject; versions: CatalogVersion[] }> {
+  const query = new URLSearchParams();
+  if (loader) query.set("loader", loader);
+  if (mc) query.set("mc", mc);
+
+  return request<{ project: CatalogProject; versions: CatalogVersion[] }>(
+    `/catalog/projects/${encodeURIComponent(pid)}?${query.toString()}`,
+  );
+}
+
+export function installAddon(
+  id: string,
+  input: { project_id: string; version_id?: string; dry_run?: boolean },
+): Promise<{ task_id?: string; plan?: InstallPlan; files?: PlannedFile[] }> {
+  return request<{ task_id?: string; plan?: InstallPlan; files?: PlannedFile[] }>(
+    `/servers/${id}/catalog/install`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export async function listInstalled(id: string): Promise<InstalledAddon[]> {
+  const body = await request<ListResponse<InstalledAddon>>(`/servers/${id}/installed`);
+  return body.items;
+}
+
+export function toggleInstalled(
+  id: string,
+  file: string,
+): Promise<{ file: string; enabled: boolean; restart_required: boolean }> {
+  return request<{ file: string; enabled: boolean; restart_required: boolean }>(
+    `/servers/${id}/installed/${encodeURIComponent(file)}/toggle`,
+    { method: "POST" },
+  );
+}
+
+export function deleteInstalled(id: string, file: string): Promise<void> {
+  return request<void>(`/servers/${id}/installed/${encodeURIComponent(file)}`, {
+    method: "DELETE",
+  });
+}
+
 /* --- themes --- */
 
 export async function listBuiltinThemes(): Promise<BuiltinThemeInfo[]> {

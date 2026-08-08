@@ -45,6 +45,13 @@ func (v *Vanilla) Name() string     { return "Vanilla" }
 func (v *Vanilla) Kind() Kind       { return KindServer }
 func (v *Vanilla) Runtime() Runtime { return RuntimeJava }
 
+// Content is empty: a vanilla server has no plugin or mod loader.
+//
+// Said plainly rather than defaulting to plugins/, so the panel can refuse an
+// install with a reason. A jar dropped beside a vanilla server is never read,
+// and "installed successfully, does nothing" is the worst possible answer.
+func (v *Vanilla) Content() Content { return Content{} }
+
 // mojangManifest is the index of every published version.
 type mojangManifest struct {
 	Latest struct {

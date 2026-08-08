@@ -87,6 +87,25 @@ func (b *Build) Verifiable() bool {
 	return b.Checksum != "" && b.Algorithm != ""
 }
 
+// Content describes the add-ons a core accepts.
+//
+// The core knows this, so it says it: the alternative is a table elsewhere
+// mapping core ids to loaders, which then has to be edited every time a core
+// is added — and forgetting to would silently offer the wrong plugins.
+type Content struct {
+	// Loader is the loader id used by the add-on registries — paper, fabric,
+	// forge, velocity and so on. Empty means the core takes no add-ons at all,
+	// which is the honest answer for vanilla: a plugin jar dropped next to it
+	// is simply never read.
+	Loader string
+	// Dir is where artifacts go, relative to the server directory. Bukkit-
+	// family servers read plugins/, mod loaders read mods/.
+	Dir string
+}
+
+// Accepts reports whether add-ons can be installed at all.
+func (c Content) Accepts() bool { return c.Loader != "" && c.Dir != "" }
+
 // Provider serves one core.
 type Provider interface {
 	// ID is the stable identifier used in the API and the database.
@@ -95,6 +114,9 @@ type Provider interface {
 	Name() string
 	Kind() Kind
 	Runtime() Runtime
+
+	// Content says what add-ons this core takes and where they live.
+	Content() Content
 
 	// Versions lists what can be installed, newest first.
 	Versions(ctx context.Context) ([]Version, error)
