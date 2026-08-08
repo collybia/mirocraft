@@ -45,7 +45,7 @@ type createBackupRequest struct {
 	Note string `json:"note"`
 }
 
-type scheduleResponse struct {
+type backupScheduleResponse struct {
 	Cron      string     `json:"cron"`
 	KeepLast  int        `json:"keep_last"`
 	Enabled   bool       `json:"enabled"`
@@ -380,11 +380,11 @@ func (a *API) handleGetSchedule(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// No schedule is a normal state, not an error: the panel shows the
 		// form empty and disabled.
-		writeJSON(w, http.StatusOK, scheduleResponse{KeepLast: DefaultKeepLast})
+		writeJSON(w, http.StatusOK, backupScheduleResponse{KeepLast: DefaultKeepLast})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, toScheduleResponse(schedule))
+	writeJSON(w, http.StatusOK, toBackupScheduleResponse(schedule))
 }
 
 // handlePutSchedule serves PUT /servers/{id}/backups/schedule.
@@ -440,11 +440,11 @@ func (a *API) handlePutSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.audit(r, principal.UserID, "backup.schedule", serverID, req.Cron)
-	writeJSON(w, http.StatusOK, toScheduleResponse(schedule))
+	writeJSON(w, http.StatusOK, toBackupScheduleResponse(schedule))
 }
 
-func toScheduleResponse(s *store.BackupSchedule) scheduleResponse {
-	out := scheduleResponse{
+func toBackupScheduleResponse(s *store.BackupSchedule) backupScheduleResponse {
+	out := backupScheduleResponse{
 		Cron: s.Cron, KeepLast: s.KeepLast, Enabled: s.Enabled, LastRunAt: s.LastRunAt,
 	}
 	if schedule, err := cronParser.Parse(s.Cron); err == nil && s.Enabled {

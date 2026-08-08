@@ -201,11 +201,21 @@ func TestHubSlowSubscriberDropsWithoutBlockingOthers(t *testing.T) {
 	defer stopFast()
 
 	const total = subscriberQueue * 4
+
+	// The reader consumes each line before the next is published. Without the
+	// handshake this test asks the scheduler for a favour it never promised:
+	// the "fast" subscriber is only fast while it is being given time, and a
+	// reader that is descheduled long enough fills its own queue and has lines
+	// dropped in exactly the way the design says it should. In lockstep the
+	// queue never fills, so receiving every line is a property of the code
+	// rather than of how busy the machine is.
+	consumed := make(chan struct{})
 	drained := make(chan int, 1)
 	go func() {
 		count := 0
 		for range fastCh {
 			count++
+			consumed <- struct{}{}
 			if count == total {
 				break
 			}
@@ -215,10 +225,11 @@ func TestHubSlowSubscriberDropsWithoutBlockingOthers(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		for i := 0; i < total; i++ {
 			h.Publish(line("x"))
+			<-consumed
 		}
-		close(done)
 	}()
 
 	select {

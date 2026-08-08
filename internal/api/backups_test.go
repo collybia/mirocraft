@@ -310,7 +310,7 @@ func TestScheduleRoundTrip(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 
-	body := decodeJSON[scheduleResponse](t, resp)
+	body := decodeJSON[backupScheduleResponse](t, resp)
 	if body.Cron != "0 4 * * *" || body.KeepLast != 3 || !body.Enabled {
 		t.Fatalf("schedule = %+v", body)
 	}
@@ -319,7 +319,7 @@ func TestScheduleRoundTrip(t *testing.T) {
 	}
 
 	read := e.do(http.MethodGet, "/api/v1/servers/"+testServerID+"/backups/schedule", nil, token)
-	if got := decodeJSON[scheduleResponse](t, read); got.Cron != "0 4 * * *" {
+	if got := decodeJSON[backupScheduleResponse](t, read); got.Cron != "0 4 * * *" {
 		t.Fatalf("read back = %+v", got)
 	}
 }
@@ -378,7 +378,7 @@ func TestScheduleAbsentIsNotAnError(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	body := decodeJSON[scheduleResponse](t, resp)
+	body := decodeJSON[backupScheduleResponse](t, resp)
 	if body.Enabled {
 		t.Error("a server with no schedule reports one as enabled")
 	}

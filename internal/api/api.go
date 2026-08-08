@@ -81,6 +81,10 @@ type API struct {
 	tickets     *TicketStore
 	tasks       *taskRegistry
 
+	// scheduleRuns guards a chain against overlapping itself; a chain that
+	// waits can outlast the tick that started it.
+	scheduleRuns *runningSchedules
+
 	dataDir     string
 	portFrom    int
 	portTo      int
@@ -150,6 +154,7 @@ func New(opts Options) *API {
 		events:       bus,
 		tickets:      NewTicketStore(opts.TicketTTL),
 		tasks:        newTaskRegistry(),
+		scheduleRuns: newRunningSchedules(),
 		dataDir:      dataDir,
 		portFrom:     portFrom,
 		portTo:       portTo,
@@ -251,6 +256,11 @@ func (a *API) Handler() http.Handler {
 		"POST /api/v1/servers/{id}/backups":               a.handleCreateBackup,
 		"GET /api/v1/servers/{id}/backups/schedule":       a.handleGetSchedule,
 		"PUT /api/v1/servers/{id}/backups/schedule":       a.handlePutSchedule,
+		"GET /api/v1/servers/{id}/schedules":              a.handleListSchedules,
+		"POST /api/v1/servers/{id}/schedules":             a.handleCreateSchedule,
+		"PATCH /api/v1/servers/{id}/schedules/{sid}":      a.handlePatchSchedule,
+		"DELETE /api/v1/servers/{id}/schedules/{sid}":     a.handleDeleteSchedule,
+		"POST /api/v1/servers/{id}/schedules/{sid}/run":   a.handleRunSchedule,
 		"GET /api/v1/servers/{id}/backups/{bid}/download": a.handleDownloadBackup,
 		"POST /api/v1/servers/{id}/backups/{bid}/restore": a.handleRestoreBackup,
 		"DELETE /api/v1/servers/{id}/backups/{bid}":       a.handleDeleteBackup,

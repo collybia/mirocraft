@@ -149,6 +149,8 @@ func run() error {
 	// Scheduled backups tick rather than sleeping to the next due time, so a
 	// schedule added while the daemon runs is picked up without a restart.
 	go restAPI.RunBackupSchedules(ctx, time.Minute)
+	// Action chains tick on the same cadence and for the same reason.
+	go restAPI.RunSchedules(ctx, time.Minute)
 
 	// Webhooks read the same bus the panel's event socket does, so a delivery
 	// carries exactly what a watching browser saw.

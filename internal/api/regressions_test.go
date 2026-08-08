@@ -804,6 +804,16 @@ func TestEveryDocumentedRouteIsRegistered(t *testing.T) {
 		{http.MethodDelete, "/api/v1/servers/" + id + "/ops/Notch"},
 		{http.MethodGet, "/api/v1/servers/" + id + "/settings"},
 		{http.MethodPatch, "/api/v1/servers/" + id + "/settings"},
+		{http.MethodPost, "/api/v1/events/ticket"},
+		{http.MethodGet, "/api/v1/webhooks"},
+		{http.MethodPost, "/api/v1/webhooks"},
+		{http.MethodDelete, "/api/v1/webhooks/01X"},
+		{http.MethodPost, "/api/v1/webhooks/01X/test"},
+		{http.MethodGet, "/api/v1/servers/" + id + "/schedules"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/schedules"},
+		{http.MethodPatch, "/api/v1/servers/" + id + "/schedules/01X"},
+		{http.MethodDelete, "/api/v1/servers/" + id + "/schedules/01X"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/schedules/01X/run"},
 	}
 
 	for _, route := range routes {
