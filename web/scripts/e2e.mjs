@@ -159,6 +159,45 @@ try {
   await shoot(page, "08-custom-theme");
 
   check("the page produced no uncaught errors", consoleErrors.length === 0, consoleErrors.join("; "));
+
+  /* --- API documentation ---
+   *
+   * The Go tests check that the spec matches the router and that the assets
+   * are served. Neither can catch a spec that Swagger UI itself refuses to
+   * render, which is only visible in a browser.
+   */
+
+  const docs = await context.newPage();
+  const offHost = [];
+  docs.on("request", (r) => {
+    if (!r.url().startsWith(baseURL) && !r.url().startsWith("data:")) offHost.push(r.url());
+  });
+
+  await docs.goto(`${baseURL}/api/v1/docs`, { waitUntil: "networkidle" });
+  await docs.waitForSelector(".opblock-tag", { timeout: 20000 });
+
+  check("the docs page renders the spec", (await docs.locator(".info .title").count()) > 0);
+  check("the spec has no errors Swagger UI could not resolve",
+    (await docs.locator(".errors-wrapper").count()) === 0);
+
+  // Every group expanded, so a path item that renders as nothing is visible.
+  const tags = docs.locator(".opblock-tag");
+  const tagCount = await tags.count();
+  for (let i = 0; i < tagCount; i += 1) {
+    await tags.nth(i).click();
+  }
+  await docs.waitForTimeout(500);
+
+  const operations = await docs.locator(".opblock").count();
+  check("the docs page lists the operations", operations > 50, `${operations} rendered`);
+
+  // The single-binary rule covers the documentation too: a page that only
+  // renders when a CDN is reachable is the dependency it exists to avoid.
+  check("the docs page loads nothing from outside this daemon",
+    offHost.length === 0, offHost.join(", "));
+
+  await shoot(docs, "09-api-docs");
+  await docs.close();
 } catch (err) {
   console.error(`FAIL unexpected error — ${err.message}`);
   await shoot(page, "99-failure");

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -196,23 +197,9 @@ func (a *API) ownerOf(serverID string) string {
 	return server.OwnerID
 }
 
-// Handler returns the API router mounted under /api/v1.
-func (a *API) Handler() http.Handler {
-	mux := http.NewServeMux()
-
-	// Public.
-	mux.HandleFunc("GET /api/v1/health", a.handleHealth)
-	mux.HandleFunc("GET /api/v1/themes", a.handleListThemes)
-
-	// Login carries its own, much tighter limit, keyed by IP rather than by
-	// token: an attacker guessing passwords has no token to key on.
-	mux.Handle("POST /api/v1/auth/login", chain(
-		http.HandlerFunc(a.handleLogin),
-		a.rateLimit(a.loginLimiter, ipKey),
-	))
-
-	// Authenticated.
-	authed := map[string]http.HandlerFunc{
+// authedRoutes are the routes behind a bearer token.
+func (a *API) authedRoutes() map[string]http.HandlerFunc {
+	return map[string]http.HandlerFunc{
 		"POST /api/v1/auth/logout":                        a.handleLogout,
 		"POST /api/v1/auth/refresh":                       a.handleRefresh,
 		"GET /api/v1/auth/me":                             a.handleMe,
@@ -279,7 +266,80 @@ func (a *API) Handler() http.Handler {
 		"POST /api/v1/servers/{id}/command":               a.handleCommand,
 		"POST /api/v1/servers/{id}/console/ticket":        a.handleConsoleTicket,
 	}
-	for pattern, handler := range authed {
+}
+
+// adminRoutes are the routes that additionally require the admin role.
+func (a *API) adminRoutes() map[string]http.HandlerFunc {
+	return map[string]http.HandlerFunc{
+		"GET /api/v1/admin/users":         a.handleListUsers,
+		"POST /api/v1/admin/users":        a.handleCreateUser,
+		"PATCH /api/v1/admin/users/{id}":  a.handlePatchUser,
+		"DELETE /api/v1/admin/users/{id}": a.handleDeleteUser,
+	}
+}
+
+// publicRoutes need no credentials at all.
+func (a *API) publicRoutes() map[string]http.HandlerFunc {
+	return map[string]http.HandlerFunc{
+		"GET /api/v1/health":       a.handleHealth,
+		"GET /api/v1/themes":       a.handleListThemes,
+		"GET /api/v1/openapi.yaml": a.handleOpenAPISpec,
+		"GET /api/v1/docs":         a.handleDocs,
+		// The docs page's own assets, served from the same handler.
+		"GET /api/v1/docs/{asset}": a.handleDocs,
+		// Login is public but rate limited by IP; see Handler.
+		"POST /api/v1/auth/login": a.handleLogin,
+	}
+}
+
+// ticketedRoutes authenticate with a one-shot ticket in the query string
+// rather than a bearer token, because a browser cannot set a header on a
+// WebSocket upgrade.
+func (a *API) ticketedRoutes() map[string]http.HandlerFunc {
+	return map[string]http.HandlerFunc{
+		"GET /api/v1/servers/{id}/console": a.handleConsoleWS,
+		"GET /api/v1/events":               a.handleEventsWS,
+	}
+}
+
+// AllRoutes returns every route the API serves, as method-and-pattern keys.
+//
+// Exposed as data rather than only built inline so the contract test can
+// compare what the router actually serves against what openapi.yaml claims —
+// a spec nobody checks drifts from the code within a release.
+func (a *API) AllRoutes() []string {
+	var out []string
+	for _, group := range []map[string]http.HandlerFunc{
+		a.publicRoutes(), a.authedRoutes(), a.adminRoutes(), a.ticketedRoutes(),
+	} {
+		for pattern := range group {
+			out = append(out, pattern)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Handler returns the API router mounted under /api/v1.
+func (a *API) Handler() http.Handler {
+	mux := http.NewServeMux()
+
+	// Public.
+	for pattern, handler := range a.publicRoutes() {
+		if pattern == "POST /api/v1/auth/login" {
+			continue // mounted below with its own limiter
+		}
+		mux.HandleFunc(pattern, handler)
+	}
+
+	// Login carries its own, much tighter limit, keyed by IP rather than by
+	// token: an attacker guessing passwords has no token to key on.
+	mux.Handle("POST /api/v1/auth/login", chain(
+		http.HandlerFunc(a.handleLogin),
+		a.rateLimit(a.loginLimiter, ipKey),
+	))
+
+	for pattern, handler := range a.authedRoutes() {
 		mux.Handle(pattern, chain(handler,
 			a.rateLimit(a.limiter, tokenKey),
 			a.authenticate,
@@ -287,13 +347,7 @@ func (a *API) Handler() http.Handler {
 	}
 
 	// Admin.
-	admin := map[string]http.HandlerFunc{
-		"GET /api/v1/admin/users":         a.handleListUsers,
-		"POST /api/v1/admin/users":        a.handleCreateUser,
-		"PATCH /api/v1/admin/users/{id}":  a.handlePatchUser,
-		"DELETE /api/v1/admin/users/{id}": a.handleDeleteUser,
-	}
-	for pattern, handler := range admin {
+	for pattern, handler := range a.adminRoutes() {
 		mux.Handle(pattern, chain(handler,
 			a.rateLimit(a.limiter, tokenKey),
 			a.authenticate,
@@ -301,13 +355,13 @@ func (a *API) Handler() http.Handler {
 		))
 	}
 
-	// The console socket authenticates with a ticket, so it sits outside the
-	// bearer middleware. It is also outside the request rate limit: a single
+	// The sockets authenticate with a ticket, so they sit outside the bearer
+	// middleware. They are also outside the request rate limit: a single
 	// long-lived connection is not a request stream, and docs/API.md says
 	// WebSockets do not count.
-	mux.HandleFunc("GET /api/v1/servers/{id}/console", a.handleConsoleWS)
-	// The event bus authenticates with a ticket for the same reason.
-	mux.HandleFunc("GET /api/v1/events", a.handleEventsWS)
+	for pattern, handler := range a.ticketedRoutes() {
+		mux.HandleFunc(pattern, handler)
+	}
 
 	return a.logRequests(mux)
 }

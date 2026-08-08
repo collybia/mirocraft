@@ -197,6 +197,14 @@ func rootHandler(apiHandler http.Handler, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/", apiHandler)
 
+	// docs/ROADMAP.md promises the documentation at /api/docs, but every route
+	// lives under the version prefix. Without this the path would fall through
+	// to the panel and answer 200 with the SPA, which reads as "the docs are
+	// broken" rather than "wrong address".
+	mux.HandleFunc("/api/docs", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/api/v1/docs", http.StatusMovedPermanently)
+	})
+
 	panel, err := web.Handler()
 	if err != nil {
 		// A daemon without a panel is still a working API, so this is a

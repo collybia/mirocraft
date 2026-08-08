@@ -1,0 +1,1881 @@
+openapi: 3.0.3
+
+info:
+  title: Mirocraft API
+  version: "1.0"
+  description: |
+    REST API демона Mirocraft. Веб-панель и боты — его клиенты; никакой
+    отдельной «внутренней» двери у них нет.
+
+    Спецификация описывает то, что действительно отдаёт роутер: тест
+    `TestOpenAPIMatchesTheRouter` сравнивает её с зарегистрированными
+    маршрутами в обе стороны и падает при расхождении. Спецификация, которую
+    никто не сверяет, расходится с кодом за один релиз.
+
+    ## Аутентификация
+
+    Bearer-токен в заголовке `Authorization`. Токены бывают сессионные
+    (выдаёт `POST /auth/login`) и API-токены (`POST /auth/tokens`); хранятся
+    только хэши.
+
+    WebSocket-эндпоинты токен не принимают: браузер не может задать заголовок
+    на апгрейде, а токен в URL оседает в логах прокси и в истории браузера.
+    Вместо него — одноразовый тикет со сроком жизни 30 секунд.
+
+    ## Скоупы
+
+    `servers:read`, `servers:write`, `servers:power`, `servers:console`,
+    `files:read`, `files:write`, `backups:read`, `backups:write`, `admin:*`.
+    Токен не может выдать скоуп, которого нет у его создателя.
+
+    ## Ошибки
+
+    Все ошибки — один конверт `{"error": {"code", "message", "details"}}`.
+    Чужой ресурс отдаётся как 404, а не 403: иначе по коду ответа можно
+    перебирать существующие идентификаторы.
+  license:
+    name: MIT
+  contact:
+    name: Mirocraft
+    url: https://github.com/collybia/mirocraft
+
+servers:
+  - url: /api/v1
+    description: этот демон
+
+tags:
+  - name: health
+    description: состояние демона и справочные данные
+  - name: auth
+    description: вход, сессии и API-токены
+  - name: users
+    description: профиль и пользовательские темы
+  - name: admin
+    description: управление учётными записями
+  - name: servers
+    description: серверы Minecraft и их жизненный цикл
+  - name: console
+    description: консоль и команды
+  - name: files
+    description: файловый менеджер в песочнице сервера
+  - name: backups
+    description: бэкапы и их расписание
+  - name: players
+    description: игроки, баны, whitelist, операторы
+  - name: settings
+    description: server.properties
+  - name: schedules
+    description: cron-цепочки действий
+  - name: events
+    description: шина событий и вебхуки
+  - name: tasks
+    description: асинхронные операции
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Состояние демона
+      security: []
+      responses:
+        "200":
+          description: демон жив
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  version: { type: string, example: "1.0.0" }
+
+  /themes:
+    get:
+      tags: [health]
+      summary: Встроенные темы оформления
+      security: []
+      responses:
+        "200":
+          description: список тем
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThemeList"
+
+  /openapi.yaml:
+    get:
+      tags: [health]
+      summary: Эта спецификация
+      security: []
+      responses:
+        "200":
+          description: спецификация OpenAPI
+          content:
+            application/yaml:
+              schema: { type: string }
+
+  /docs:
+    get:
+      tags: [health]
+      summary: Интерактивная документация
+      description: |
+        Swagger UI, собранный в бинарник. Страница, работающая только при
+        доступе в интернет, — ровно та зависимость, ради отсутствия которой
+        всё складывается в один файл.
+      security: []
+      responses:
+        "200":
+          description: HTML-страница
+          content:
+            text/html:
+              schema: { type: string }
+
+  /docs/{asset}:
+    get:
+      tags: [health]
+      summary: Ресурсы страницы документации
+      security: []
+      parameters:
+        - name: asset
+          in: path
+          required: true
+          schema: { type: string, enum: [swagger-ui-bundle.js, swagger-ui.css] }
+      responses:
+        "200":
+          description: файл
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+
+  # --- auth ---
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Войти
+      description: |
+        Логин — либо адрес почты, либо простое имя: панель локальная и писем
+        не отправляет, поэтому требовать адрес было бы обрядом без смысла.
+
+        Ограничение частоты здесь своё и жёсткое, по IP, а не по токену:
+        у подбирающего пароль токена ещё нет.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, example: admin }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: вход выполнен
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Выйти, погасив текущий токен
+      responses:
+        "204": { description: токен погашен }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Продлить сессию
+      responses:
+        "200":
+          description: новый токен
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Кто я
+      responses:
+        "200":
+          description: профиль
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/tokens:
+    get:
+      tags: [auth]
+      summary: Список API-токенов
+      responses:
+        "200":
+          description: токены без значений
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Token" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [auth]
+      summary: Создать API-токен
+      description: |
+        Значение токена возвращается один раз, при создании: в базе лежит
+        только его хэш, показать его повторно неоткуда.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scopes]
+              properties:
+                name: { type: string, example: discord-bot }
+                scopes:
+                  type: array
+                  items: { $ref: "#/components/schemas/Scope" }
+                expires_at: { type: string, format: date-time, nullable: true }
+      responses:
+        "201":
+          description: токен создан
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Token"
+                  - type: object
+                    properties:
+                      token:
+                        type: string
+                        description: значение, показывается один раз
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/tokens/{id}:
+    delete:
+      tags: [auth]
+      summary: Отозвать API-токен
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "204": { description: токен отозван }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --- users ---
+
+  /users/me:
+    get:
+      tags: [users]
+      summary: Профиль
+      responses:
+        "200":
+          description: профиль
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+    patch:
+      tags: [users]
+      summary: Изменить профиль
+      description: Смена пароля требует текущего пароля.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string }
+                theme: { type: string, example: midnight }
+                current_password: { type: string, format: password }
+                new_password: { type: string, format: password }
+      responses:
+        "200":
+          description: профиль обновлён
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /users/me/themes:
+    get:
+      tags: [users]
+      summary: Свои темы
+      responses:
+        "200":
+          description: список
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/CustomTheme" }
+    post:
+      tags: [users]
+      summary: Создать тему
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomThemeInput" }
+      responses:
+        "201":
+          description: тема создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomTheme" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /users/me/themes/{tid}:
+    patch:
+      tags: [users]
+      summary: Изменить тему
+      parameters: [{ $ref: "#/components/parameters/PathThemeID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomThemeInput" }
+      responses:
+        "200":
+          description: тема обновлена
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomTheme" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [users]
+      summary: Удалить тему
+      parameters: [{ $ref: "#/components/parameters/PathThemeID" }]
+      responses:
+        "204": { description: тема удалена }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --- admin ---
+
+  /admin/users:
+    get:
+      tags: [admin]
+      summary: Все учётные записи
+      responses:
+        "200":
+          description: список
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/User" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Создать учётную запись
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string, format: password }
+                role: { type: string, enum: [user, admin] }
+      responses:
+        "201":
+          description: создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/users/{id}:
+    patch:
+      tags: [admin]
+      summary: Изменить учётную запись
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string }
+                password: { type: string, format: password }
+                role: { type: string, enum: [user, admin] }
+      responses:
+        "200":
+          description: обновлена
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [admin]
+      summary: Удалить учётную запись
+      description: |
+        Последнего администратора удалить нельзя: панель без администратора
+        не восстанавливается через интерфейс.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "204": { description: удалена }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  # --- servers ---
+
+  /servers:
+    get:
+      tags: [servers]
+      summary: Список серверов
+      description: Администратор видит все, остальные — только свои.
+      parameters:
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/ServerStatus" } }
+        - { name: core, in: query, schema: { type: string, example: paper } }
+      responses:
+        "200":
+          description: список
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Server" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [servers]
+      summary: Создать сервер
+      description: |
+        EULA Mojang нужно принять явно: сервер без принятой EULA не
+        запускается, и умолчание здесь было бы принятием лицензии за
+        пользователя.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateServerRequest" }
+      responses:
+        "201":
+          description: сервер создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Server" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "409":
+          description: порт занят другим сервером
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /servers/{id}:
+    get:
+      tags: [servers]
+      summary: Сервер
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: сервер со статусом и метриками
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Server" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [servers]
+      summary: Изменить сервер
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                ram_mb: { type: integer }
+                port: { type: integer }
+                java_args: { type: string }
+                auto_start: { type: boolean }
+                auto_restart: { type: boolean }
+      responses:
+        "200":
+          description: обновлён
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Server" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [servers]
+      summary: Удалить сервер вместе с его каталогом
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "204": { description: удалён }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: сервер запущен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /servers/{id}/power:
+    post:
+      tags: [servers]
+      summary: Питание
+      description: |
+        Отвечает сразу и возвращает `task_id`: первый запуск скачивает ядро
+        и JRE, это десятки мегабайт, и держать ради этого HTTP-запрос
+        открытым было бы неудобно обеим сторонам.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [start, stop, restart, kill] }
+                timeout_seconds: { type: integer }
+      responses:
+        "202":
+          description: задача принята
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskAccepted" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: сервер уже в этом состоянии
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /servers/{id}/tasks:
+    get:
+      tags: [tasks]
+      summary: Последние задачи сервера
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: задачи, новые сверху
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Task" }
+
+  /tasks/{id}:
+    get:
+      tags: [tasks]
+      summary: Задача
+      description: |
+        Задачи живут в памяти процесса и не переживают перезапуск демона:
+        задача, которая шла в момент остановки, невозобновляема, и строка в
+        базе, утверждающая обратное, была бы ложью.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: задача
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --- console ---
+
+  /servers/{id}/console/history:
+    get:
+      tags: [console]
+      summary: История консоли
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - name: lines
+          in: query
+          description: сколько последних строк, максимум 1000
+          schema: { type: integer, default: 500, maximum: 1000 }
+      responses:
+        "200":
+          description: строки
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ConsoleLine" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /servers/{id}/command:
+    post:
+      tags: [console]
+      summary: Отправить команду
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [command]
+              properties:
+                command: { type: string, maxLength: 512, example: "say привет" }
+      responses:
+        "204": { description: команда отправлена }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: сервер не запущен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /servers/{id}/console/ticket:
+    post:
+      tags: [console]
+      summary: Одноразовый тикет для WebSocket-консоли
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "201":
+          description: тикет
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ticket" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /servers/{id}/console:
+    get:
+      tags: [console]
+      summary: WebSocket консоли
+      description: |
+        Апгрейд до WebSocket. Сначала приходит история, затем живой поток;
+        обратно можно слать команды. Аутентификация — тикетом в query,
+        заголовок браузер задать не может.
+
+        Медленный клиент теряет строки, а не тормозит сервер: очередь на
+        подписчика ограничена, дальше строки отбрасываются.
+      security: []
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/TicketToken" }
+      responses:
+        "101": { description: соединение установлено }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  # --- files ---
+
+  /servers/{id}/files:
+    get:
+      tags: [files]
+      summary: Список файлов
+      description: |
+        Все пути — относительно каталога сервера. Выход за него невозможен:
+        путь разрешается в песочнице и проверяется до любого обращения к
+        файловой системе.
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/FilePath" }
+      responses:
+        "200":
+          description: содержимое каталога
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/FileEntry" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      tags: [files]
+      summary: Удалить файл или каталог
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/FilePath" }
+      responses:
+        "204": { description: удалено }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /servers/{id}/files/content:
+    get:
+      tags: [files]
+      summary: Прочитать текстовый файл
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/FilePath" }
+      responses:
+        "200":
+          description: содержимое
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path: { type: string }
+                  content: { type: string }
+                  size: { type: integer }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+    put:
+      tags: [files]
+      summary: Записать текстовый файл
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/FilePath" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string }
+      responses:
+        "204": { description: записано }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /servers/{id}/files/download:
+    get:
+      tags: [files]
+      summary: Скачать файл
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/FilePath" }
+      responses:
+        "200":
+          description: поток файла
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /servers/{id}/files/upload:
+    post:
+      tags: [files]
+      summary: Загрузить файл
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/FilePath" }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201": { description: загружено }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "413":
+          description: файл больше допустимого
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /servers/{id}/files/mkdir:
+    post:
+      tags: [files]
+      summary: Создать каталог
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string }
+      responses:
+        "201": { description: создан }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /servers/{id}/files/move:
+    post:
+      tags: [files]
+      summary: Переместить или переименовать
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FromTo" }
+      responses:
+        "204": { description: перемещено }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /servers/{id}/files/copy:
+    post:
+      tags: [files]
+      summary: Скопировать
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FromTo" }
+      responses:
+        "204": { description: скопировано }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /servers/{id}/files/archive:
+    post:
+      tags: [files]
+      summary: Упаковать в архив
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paths, target]
+              properties:
+                paths: { type: array, items: { type: string } }
+                target: { type: string, example: backup.zip }
+      responses:
+        "201": { description: архив создан }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /servers/{id}/files/unarchive:
+    post:
+      tags: [files]
+      summary: Распаковать архив
+      description: |
+        Записи, ведущие за пределы цели, отбрасываются: архив — это чужие
+        данные, и путь вида `../../etc/cron.d/x` иначе был бы записан туда,
+        куда просит.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string }
+                target: { type: string }
+      responses:
+        "204": { description: распаковано }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  # --- backups ---
+
+  /servers/{id}/backups:
+    get:
+      tags: [backups]
+      summary: Список бэкапов
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: список
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Backup" }
+    post:
+      tags: [backups]
+      summary: Снять бэкап
+      description: |
+        Запущенному серверу перед снятием говорится `save-off` и
+        `save-all flush`, иначе в архив попадает мир в середине записи.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: { type: string }
+      responses:
+        "202":
+          description: задача принята
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskAccepted" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /servers/{id}/backups/schedule:
+    get:
+      tags: [backups]
+      summary: Расписание бэкапов
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: расписание
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackupSchedule" }
+    put:
+      tags: [backups]
+      summary: Задать расписание бэкапов
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cron]
+              properties:
+                cron: { type: string, example: "0 4 * * *" }
+                keep_last: { type: integer, example: 7 }
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: расписание сохранено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackupSchedule" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /servers/{id}/backups/{bid}/download:
+    get:
+      tags: [backups]
+      summary: Скачать архив бэкапа
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/PathBackupID" }
+      responses:
+        "200":
+          description: поток архива
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /servers/{id}/backups/{bid}/restore:
+    post:
+      tags: [backups]
+      summary: Восстановить из бэкапа
+      description: Сервер должен быть остановлен.
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/PathBackupID" }
+      responses:
+        "202":
+          description: задача принята
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskAccepted" }
+        "409":
+          description: сервер запущен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /servers/{id}/backups/{bid}:
+    delete:
+      tags: [backups]
+      summary: Удалить бэкап
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/PathBackupID" }
+      responses:
+        "204": { description: удалён }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --- players ---
+
+  /servers/{id}/players:
+    get:
+      tags: [players]
+      summary: Игроки онлайн
+      description: |
+        Берётся из статус-пинга сервера. Протокол отдаёт лишь усечённую
+        выборку имён, поэтому список может быть неполным — это ограничение
+        Minecraft, а не панели.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: игроки
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  online: { type: integer }
+                  max: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Player" }
+
+  /servers/{id}/players/{name}/kick:
+    post:
+      tags: [players]
+      summary: Выгнать игрока
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/PathPlayerName" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        "204": { description: команда отправлена }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "409":
+          description: сервер не запущен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /servers/{id}/players/{name}/ban:
+    post:
+      tags: [players]
+      summary: Забанить игрока
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/PathPlayerName" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        "204": { description: забанен }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [players]
+      summary: Разбанить игрока
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/PathPlayerName" }
+      responses:
+        "204": { description: разбанен }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /servers/{id}/bans:
+    get:
+      tags: [players]
+      summary: Список банов
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: баны
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Ban" }
+
+  /servers/{id}/whitelist:
+    get:
+      tags: [players]
+      summary: Whitelist
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: список и состояние
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Player" }
+    post:
+      tags: [players]
+      summary: Добавить в whitelist
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { $ref: "#/components/schemas/PlayerName" }
+      responses:
+        "204": { description: добавлен }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+    patch:
+      tags: [players]
+      summary: Включить или выключить whitelist
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "204": { description: состояние изменено }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /servers/{id}/whitelist/{name}:
+    delete:
+      tags: [players]
+      summary: Убрать из whitelist
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/PathPlayerName" }
+      responses:
+        "204": { description: убран }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /servers/{id}/ops:
+    get:
+      tags: [players]
+      summary: Операторы
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: операторы
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Operator" }
+    post:
+      tags: [players]
+      summary: Выдать оператора
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { $ref: "#/components/schemas/PlayerName" }
+                level: { type: integer, minimum: 1, maximum: 4 }
+      responses:
+        "204": { description: выдан }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  /servers/{id}/ops/{name}:
+    delete:
+      tags: [players]
+      summary: Снять оператора
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/PathPlayerName" }
+      responses:
+        "204": { description: снят }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  # --- settings ---
+
+  /servers/{id}/settings:
+    get:
+      tags: [settings]
+      summary: server.properties
+      description: |
+        Возвращаются и ключи, которых нет в схеме: файл может содержать
+        настройки форков и плагинов, и молча их прятать — значит терять их
+        при первом же сохранении.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: настройки
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Setting" }
+    patch:
+      tags: [settings]
+      summary: Изменить server.properties
+      description: |
+        Комментарии, порядок строк и незнакомые ключи сохраняются: файл
+        принадлежит оператору, а не панели.
+
+        Ключи, которыми панель управляет сама (`server-port`), менять здесь
+        нельзя — иначе запись разошлась бы с тем, что знает демон.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: { type: string }
+              example: { difficulty: hard, max-players: "40" }
+      responses:
+        "200":
+          description: сохранено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Setting" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+  # --- schedules ---
+
+  /servers/{id}/schedules:
+    get:
+      tags: [schedules]
+      summary: Цепочки по расписанию
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: список
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Schedule" }
+    post:
+      tags: [schedules]
+      summary: Создать цепочку
+      description: |
+        Требует скоупов тех действий, которые в цепочке: расписание — это
+        отложенное действие, и составить его должно стоить того же, что
+        сделать руками. Иначе одного `servers:write` хватало бы, чтобы
+        выполнять произвольные команды консоли.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleInput" }
+      responses:
+        "201":
+          description: создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /servers/{id}/schedules/{sid}:
+    patch:
+      tags: [schedules]
+      summary: Изменить цепочку
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/PathScheduleID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                cron: { type: string }
+                actions:
+                  type: array
+                  items: { $ref: "#/components/schemas/Action" }
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: изменена
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [schedules]
+      summary: Удалить цепочку
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/PathScheduleID" }
+      responses:
+        "204": { description: удалена }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /servers/{id}/schedules/{sid}/run:
+    post:
+      tags: [schedules]
+      summary: Прогнать цепочку сейчас
+      parameters:
+        - { $ref: "#/components/parameters/PathID" }
+        - { $ref: "#/components/parameters/PathScheduleID" }
+      responses:
+        "202":
+          description: задача принята
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskAccepted" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: цепочка уже выполняется
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  # --- events ---
+
+  /events/ticket:
+    post:
+      tags: [events]
+      summary: Одноразовый тикет для шины событий
+      responses:
+        "201":
+          description: тикет
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ticket" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /events:
+    get:
+      tags: [events]
+      summary: WebSocket шины событий
+      description: |
+        События серверов пользователя; администратор видит все. Консольный
+        тикет здесь не принимается: он выписан на один сервер, а шина отдаёт
+        события всего аккаунта.
+      security: []
+      parameters: [{ $ref: "#/components/parameters/TicketToken" }]
+      responses:
+        "101": { description: соединение установлено }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /webhooks:
+    get:
+      tags: [events]
+      summary: Список вебхуков
+      responses:
+        "200":
+          description: список
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Webhook" }
+    post:
+      tags: [events]
+      summary: Зарегистрировать вебхук
+      description: |
+        `secret` обязателен: без него получатель не может проверить подпись,
+        и подписывание теряет смысл. Обратно секрет не отдаётся никогда.
+
+        Доставка на loopback и приватные адреса по умолчанию запрещена: URL
+        задаёт пользователь, а запрос делает демон — это форма SSRF.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, secret]
+              properties:
+                url: { type: string, format: uri }
+                secret: { type: string, minLength: 8 }
+                events:
+                  type: array
+                  description: пустой список — получать всё
+                  items: { $ref: "#/components/schemas/EventType" }
+                enabled: { type: boolean }
+      responses:
+        "201":
+          description: создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /webhooks/{id}:
+    delete:
+      tags: [events]
+      summary: Удалить вебхук
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "204": { description: удалён }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /webhooks/{id}/test:
+    post:
+      tags: [events]
+      summary: Отправить тестовое событие
+      description: |
+        Публикуется на шину, а не доставляется напрямую, чтобы проверка шла
+        ровно тем же путём, что настоящее событие — включая подпись, ретраи
+        и проверку адреса.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "202": { description: событие поставлено в очередь }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Сессионный или API-токен.
+
+  parameters:
+    PathID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, example: 01KZH5Z6RAS9K36M8XAWSC1DZQ }
+    PathThemeID:
+      name: tid
+      in: path
+      required: true
+      schema: { type: string }
+    PathBackupID:
+      name: bid
+      in: path
+      required: true
+      schema: { type: string }
+    PathScheduleID:
+      name: sid
+      in: path
+      required: true
+      schema: { type: string }
+    PathPlayerName:
+      name: name
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/PlayerName" }
+    FilePath:
+      name: path
+      in: query
+      description: путь относительно каталога сервера
+      schema: { type: string, example: plugins/config.yml }
+    TicketToken:
+      name: token
+      in: query
+      required: true
+      description: одноразовый тикет
+      schema: { type: string }
+
+  responses:
+    Unauthorized:
+      description: нет действительных учётных данных
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: у токена не хватает скоупа
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: |
+        не найдено. Чужой ресурс отдаётся так же, а не как 403: иначе по коду
+        ответа можно перебирать существующие идентификаторы
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ValidationFailed:
+      description: тело запроса не прошло проверку
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: слишком много запросов
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum:
+                - unauthorized
+                - forbidden
+                - validation_failed
+                - server_not_found
+                - server_not_running
+                - server_already_running
+                - schedule_already_running
+                - rate_limited
+                - internal_error
+            message: { type: string }
+            details:
+              type: object
+              additionalProperties: true
+
+    Scope:
+      type: string
+      enum:
+        - servers:read
+        - servers:write
+        - servers:power
+        - servers:console
+        - files:read
+        - files:write
+        - backups:read
+        - backups:write
+        - admin:*
+
+    ServerStatus:
+      type: string
+      enum: [stopped, starting, running, stopping, crashed]
+
+    EventType:
+      type: string
+      enum:
+        - server.status_changed
+        - server.crashed
+        - backup.completed
+        - backup.failed
+        - player.joined
+        - player.left
+        - task.updated
+
+    PlayerName:
+      type: string
+      pattern: "^[a-zA-Z0-9_]{3,16}$"
+      description: |
+        Имя Mojang. Проверка — граница безопасности, а не удобство: имя
+        уходит в команду консоли, и `Steve; op me` не должно туда попасть.
+
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+        role: { type: string, enum: [user, admin] }
+        theme: { type: string }
+        created_at: { type: string, format: date-time }
+
+    LoginResponse:
+      type: object
+      properties:
+        token: { type: string }
+        expires_at: { type: string, format: date-time }
+        user: { $ref: "#/components/schemas/User" }
+
+    Token:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/Scope" }
+        last_used_at: { type: string, format: date-time, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    ThemeList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, example: midnight }
+              name: { type: string }
+              dark: { type: boolean }
+
+    CustomTheme:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        dark: { type: boolean }
+        tokens:
+          type: object
+          additionalProperties: { type: string }
+        created_at: { type: string, format: date-time }
+
+    CustomThemeInput:
+      type: object
+      required: [name, tokens]
+      properties:
+        name: { type: string }
+        dark: { type: boolean }
+        tokens:
+          type: object
+          additionalProperties: { type: string }
+          description: значения CSS-переменных темы
+
+    Server:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        core: { type: string, example: paper }
+        version: { type: string, example: "1.21.4" }
+        kind: { type: string }
+        status: { $ref: "#/components/schemas/ServerStatus" }
+        ram_mb: { type: integer }
+        port: { type: integer }
+        java_args: { type: string }
+        owner_id: { type: string }
+        auto_start: { type: boolean }
+        auto_restart: { type: boolean }
+        eula_accepted: { type: boolean }
+        created_at: { type: string, format: date-time }
+        metrics:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/Metrics" }]
+
+    CreateServerRequest:
+      type: object
+      required: [name, core, version, eula_accepted]
+      properties:
+        name: { type: string }
+        core: { type: string, example: paper }
+        version: { type: string, example: "1.21.4" }
+        ram_mb: { type: integer, example: 2048 }
+        port: { type: integer, description: свободный порт подбирается сам }
+        java_args: { type: string }
+        auto_start: { type: boolean }
+        auto_restart: { type: boolean }
+        eula_accepted:
+          type: boolean
+          description: должно быть true, иначе сервер не создаётся
+
+    Metrics:
+      type: object
+      properties:
+        cpu_percent: { type: number, format: float }
+        memory_mb: { type: integer }
+        players_online: { type: integer, nullable: true }
+        players_max: { type: integer, nullable: true }
+        uptime_seconds: { type: integer }
+
+    Task:
+      type: object
+      properties:
+        id: { type: string }
+        kind: { type: string, example: power.start }
+        server_id: { type: string }
+        status: { type: string, enum: [queued, running, done, failed] }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        error: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    TaskAccepted:
+      type: object
+      properties:
+        task_id: { type: string }
+
+    Ticket:
+      type: object
+      properties:
+        ticket: { type: string }
+        expires_at: { type: string, format: date-time }
+
+    ConsoleLine:
+      type: object
+      properties:
+        text: { type: string }
+        at: { type: string, format: date-time }
+        stream: { type: string, enum: [stdout, stderr] }
+
+    FileEntry:
+      type: object
+      properties:
+        name: { type: string }
+        path: { type: string }
+        is_dir: { type: boolean }
+        size: { type: integer }
+        modified_at: { type: string, format: date-time }
+
+    FromTo:
+      type: object
+      required: [from, to]
+      properties:
+        from: { type: string }
+        to: { type: string }
+
+    Backup:
+      type: object
+      properties:
+        id: { type: string }
+        server_id: { type: string }
+        state: { type: string, enum: [pending, running, done, failed] }
+        note: { type: string }
+        size_bytes: { type: integer }
+        error: { type: string }
+        created_at: { type: string, format: date-time }
+
+    BackupSchedule:
+      type: object
+      properties:
+        cron: { type: string, example: "0 4 * * *" }
+        keep_last: { type: integer }
+        enabled: { type: boolean }
+        last_run_at: { type: string, format: date-time, nullable: true }
+        next_run_at: { type: string, format: date-time, nullable: true }
+
+    Player:
+      type: object
+      properties:
+        name: { $ref: "#/components/schemas/PlayerName" }
+        uuid: { type: string, nullable: true }
+
+    Ban:
+      type: object
+      properties:
+        name: { type: string }
+        reason: { type: string }
+        source: { type: string }
+        created: { type: string }
+
+    Operator:
+      type: object
+      properties:
+        name: { type: string }
+        level: { type: integer, minimum: 1, maximum: 4 }
+        uuid: { type: string }
+
+    Setting:
+      type: object
+      properties:
+        key: { type: string, example: difficulty }
+        value: { type: string, example: hard }
+        type: { type: string, enum: [string, int, bool, enum] }
+        options:
+          type: array
+          items: { type: string }
+        managed:
+          type: boolean
+          description: |
+            ключ, которым панель управляет сама; менять его здесь нельзя,
+            иначе файл разошёлся бы с тем, что знает демон
+        known:
+          type: boolean
+          description: ключ есть во встроенной схеме
+
+    Action:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [command, power, backup, wait] }
+        payload:
+          type: object
+          additionalProperties: true
+          description: |
+            `command` — `{command}`, `power` — `{action}`, `backup` —
+            `{note?}`, `wait` — `{seconds}`
+
+    Schedule:
+      type: object
+      properties:
+        id: { type: string }
+        server_id: { type: string }
+        name: { type: string }
+        cron: { type: string }
+        actions:
+          type: array
+          items: { $ref: "#/components/schemas/Action" }
+        enabled: { type: boolean }
+        last_run_at: { type: string, format: date-time, nullable: true }
+        last_status: { type: string, enum: ["", ok, failed] }
+        last_error: { type: string }
+        next_run_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ScheduleInput:
+      type: object
+      required: [name, cron, actions]
+      properties:
+        name: { type: string, maxLength: 100 }
+        cron: { type: string, example: "0 4 * * *" }
+        actions:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: "#/components/schemas/Action" }
+        enabled: { type: boolean, default: true }
+
+    Webhook:
+      type: object
+      properties:
+        id: { type: string }
+        url: { type: string, format: uri }
+        events:
+          type: array
+          items: { $ref: "#/components/schemas/EventType" }
+        enabled: { type: boolean }
+        has_secret:
+          type: boolean
+          description: секрет наружу не отдаётся, только факт его наличия
+        last_status: { type: integer, nullable: true }
+        last_error: { type: string }
+        last_attempt_at: { type: string, format: date-time, nullable: true }
+        last_success_at: { type: string, format: date-time, nullable: true }
+        failure_count: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    Event:
+      type: object
+      description: одно сообщение шины или тело доставки вебхука
+      properties:
+        type: { $ref: "#/components/schemas/EventType" }
+        server_id: { type: string }
+        at: { type: string, format: date-time }
+        data:
+          type: object
+          additionalProperties: true
