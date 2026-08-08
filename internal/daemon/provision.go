@@ -34,6 +34,11 @@ type Provisioner struct {
 	Downloader *core.Downloader
 	Java       *java.Manager
 
+	// SkipHostJava stops the host runtime being downloaded. Set when servers
+	// run in containers: the image brings its own Java, so fetching 110 MB of
+	// JRE onto the host for a server that will never touch it is pure waste.
+	SkipHostJava bool
+
 	log *slog.Logger
 }
 
@@ -85,23 +90,27 @@ func (p *Provisioner) Prepare(ctx context.Context, srv *store.Server, dir string
 		return nil, err
 	}
 
-	runtime, err := p.Java.Ensure(ctx, build.JavaMajor)
-	if err != nil {
-		return nil, fmt.Errorf("preparing Java %d for %s %s: %w",
-			build.JavaMajor, srv.Core, srv.Version, err)
+	launch := &Launch{JarName: ServerJarName, JavaMajor: build.JavaMajor, Build: build}
+
+	if !p.SkipHostJava {
+		runtime, err := p.Java.Ensure(ctx, build.JavaMajor)
+		if err != nil {
+			return nil, fmt.Errorf("preparing Java %d for %s %s: %w",
+				build.JavaMajor, srv.Core, srv.Version, err)
+		}
+		launch.JavaBin = runtime.Bin
+		// The installed runtime wins over the table: it is what will actually
+		// run, and the two can differ where the panel installs a newer version
+		// than the minimum.
+		launch.JavaMajor = runtime.Major
 	}
 
 	p.log.Info("server prepared",
 		slog.String("server_id", srv.ID),
 		slog.String("core", build.Core), slog.String("version", build.Version),
-		slog.String("build", build.Build), slog.Int("java", runtime.Major))
+		slog.String("build", build.Build), slog.Int("java", launch.JavaMajor))
 
-	return &Launch{
-		JarName:   ServerJarName,
-		JavaBin:   runtime.Bin,
-		JavaMajor: runtime.Major,
-		Build:     build,
-	}, nil
+	return launch, nil
 }
 
 // ensureJar makes sure the server directory holds the right jar.

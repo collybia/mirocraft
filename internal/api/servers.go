@@ -564,7 +564,8 @@ func (a *API) startServer(ctx context.Context, server *store.Server) error {
 	launch := &runner.Server{
 		ID: server.ID, Name: server.Name, Dir: a.serverDir(server),
 		Core: server.Core, Version: server.Version, RAMMb: server.RAMMb,
-		JarName: server.JarName, JavaArgs: splitJavaArgs(server.JavaArgs),
+		Port: server.Port, JarName: server.JarName,
+		JavaArgs: splitJavaArgs(server.JavaArgs),
 	}
 
 	// Provisioning downloads the core and the Java runtime on a cold start,
@@ -578,6 +579,9 @@ func (a *API) startServer(ctx context.Context, server *store.Server) error {
 		}
 		launch.JarName = prepared.JarName
 		launch.JavaBin = prepared.JavaBin
+		// Carried through even when the host has no runtime installed: the
+		// Docker runner picks its image from it.
+		launch.JavaMajor = prepared.JavaMajor
 
 		// Remembered so the panel can show what is actually installed, and so
 		// a later start knows the jar without asking upstream again.

@@ -52,6 +52,16 @@ type Server struct {
 	JavaBin  string   // absolute path to the java binary; "java" falls back to PATH
 	JarName  string   // server jar relative to Dir
 	JavaArgs []string // extra JVM flags, e.g. Aikar's
+
+	// Port is the port the server listens on. ProcessRunner does not need it —
+	// the server reads it from server.properties and binds the host directly —
+	// but a container has its own network stack, so DockerRunner has to
+	// publish it.
+	Port int
+	// JavaMajor is the runtime feature version the server needs. Likewise
+	// unused by ProcessRunner, which is handed a path to a runtime that has
+	// already been chosen; DockerRunner picks an image from it.
+	JavaMajor int
 }
 
 // Runner starts and supervises server processes.
@@ -65,6 +75,11 @@ type Runner interface {
 	Stop(ctx context.Context, id string, timeout time.Duration) error
 	Kill(ctx context.Context, id string) error
 	Status(ctx context.Context, id string) (Status, error)
+
+	// Stats reports resource usage for a running server. Sampling failures are
+	// not errors: a server can stop between the lookup and the sample, and a
+	// half-filled Stats beats blanking the whole page.
+	Stats(ctx context.Context, id string) (Stats, error)
 
 	// History returns up to lines most recent console lines, oldest first.
 	History(ctx context.Context, id string, lines int) ([]ConsoleLine, error)

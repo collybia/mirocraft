@@ -84,12 +84,10 @@ func run() error {
 		slog.String("data_dir", cfg.DataDir),
 		slog.String("runner", cfg.Runner.Type))
 
-	// Runner selection is a task 1.5 concern; until DockerRunner exists there
-	// is only one implementation, so docker and auto both land on it.
-	if cfg.Runner.Type == config.RunnerDocker {
-		log.Warn("docker runner is not implemented yet, using the process runner")
+	selected, err := selectRunner(context.Background(), cfg, log)
+	if err != nil {
+		return err
 	}
-	processRunner := runner.NewProcessRunner(log)
 
 	// Core downloads and Java runtimes share the data directory, so a rebuilt
 	// server or a second one on the same version costs nothing.
@@ -97,6 +95,9 @@ func run() error {
 	downloader := core.NewDownloader(filepath.Join(cfg.DataDir, "cache", "cores"), log)
 	javaMgr := java.NewManager(filepath.Join(cfg.DataDir, "java"), log)
 	provisioner := daemon.NewProvisioner(cores, downloader, javaMgr, log)
+	// A container brings its own Java, so downloading 110 MB of JRE onto the
+	// host to run a server that will never touch it is pure waste.
+	provisioner.SkipHostJava = selected.docker != nil
 	backups := backup.NewManager(filepath.Join(cfg.DataDir, "backups"), log)
 
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
@@ -119,10 +120,18 @@ func run() error {
 	// does not re-download what is already there.
 	javaMgr.Scan(context.Background())
 
+	// A container survives the daemon that made it, so a restarted daemon has
+	// to find the servers it left running rather than assume they are gone.
+	if selected.docker != nil {
+		if err := selected.docker.Adopt(context.Background()); err != nil {
+			log.Warn("adopting existing containers failed", slog.String("error", err.Error()))
+		}
+	}
+
 	restAPI := api.New(api.Options{
 		Store:       db,
-		Console:     processRunner,
-		Lifecycle:   processRunner,
+		Console:     selected.runner,
+		Lifecycle:   selected.runner,
 		Provisioner: provisioner,
 		Backups:     backups,
 		Logger:      log,
@@ -180,7 +189,7 @@ func run() error {
 	// The runner goes first so console subscriptions are released and their
 	// WebSocket handlers return, letting the HTTP server drain instead of
 	// waiting out the shutdown timeout.
-	if err := processRunner.Shutdown(shutdownCtx); err != nil {
+	if err := selected.runner.Shutdown(shutdownCtx); err != nil {
 		log.Error("shutting down runner failed", slog.String("error", err.Error()))
 	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -189,6 +198,65 @@ func run() error {
 
 	log.Info("stopped")
 	return nil
+}
+
+// chosenRunner is the runner the daemon will use, plus the Docker one when
+// that is what was chosen — a few startup steps are Docker-specific and the
+// Runner interface deliberately does not know about them.
+type chosenRunner struct {
+	runner runner.Runner
+	docker *runner.DockerRunner
+}
+
+// selectRunner picks a runner according to the configuration.
+//
+// auto prefers Docker and falls back to processes, because Docker gives a
+// server a real memory limit and a runtime that need not be installed on the
+// host — but a VPS without Docker is a supported install, not an error.
+//
+// An explicit choice is honoured strictly: an operator who wrote
+// runner.type: docker and got processes instead would be running a
+// configuration they did not ask for and would have no way to notice.
+func selectRunner(ctx context.Context, cfg config.Config, log *slog.Logger) (chosenRunner, error) {
+	tryDocker := func() (*runner.DockerRunner, error) {
+		dockerRunner, err := runner.NewDockerRunner("", log)
+		if err != nil {
+			return nil, err
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := dockerRunner.Available(probeCtx); err != nil {
+			return nil, err
+		}
+		return dockerRunner, nil
+	}
+
+	switch cfg.Runner.Type {
+	case config.RunnerProcess:
+		log.Info("runner selected", slog.String("runner", "process"))
+		return chosenRunner{runner: runner.NewProcessRunner(log)}, nil
+
+	case config.RunnerDocker:
+		dockerRunner, err := tryDocker()
+		if err != nil {
+			return chosenRunner{}, fmt.Errorf(
+				"runner.type is docker but the Docker daemon is not usable: %w", err)
+		}
+		log.Info("runner selected", slog.String("runner", "docker"),
+			slog.String("host", dockerRunner.Client().Host()))
+		return chosenRunner{runner: dockerRunner, docker: dockerRunner}, nil
+
+	default: // auto
+		dockerRunner, err := tryDocker()
+		if err != nil {
+			log.Info("runner selected", slog.String("runner", "process"),
+				slog.String("docker", err.Error()))
+			return chosenRunner{runner: runner.NewProcessRunner(log)}, nil
+		}
+		log.Info("runner selected", slog.String("runner", "docker"),
+			slog.String("host", dockerRunner.Client().Host()))
+		return chosenRunner{runner: dockerRunner, docker: dockerRunner}, nil
+	}
 }
 
 // rootHandler routes /api/v1 to the API and everything else to the embedded
