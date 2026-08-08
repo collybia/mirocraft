@@ -21,6 +21,7 @@ import (
 	"github.com/temertika/mirocraft/internal/config"
 	"github.com/temertika/mirocraft/internal/runner"
 	"github.com/temertika/mirocraft/internal/store"
+	"github.com/temertika/mirocraft/web"
 )
 
 // version is stamped at build time with -ldflags.
@@ -113,7 +114,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           restAPI.Handler(),
+		Handler:           rootHandler(restAPI.Handler(), log),
 		ReadHeaderTimeout: 10 * time.Second,
 		// No WriteTimeout: it would cut off console WebSocket streams.
 		IdleTimeout: 120 * time.Second,
@@ -153,6 +154,30 @@ func run() error {
 
 	log.Info("stopped")
 	return nil
+}
+
+// rootHandler routes /api/v1 to the API and everything else to the embedded
+// panel, so both live on one origin and one port.
+func rootHandler(apiHandler http.Handler, log *slog.Logger) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/api/v1/", apiHandler)
+
+	panel, err := web.Handler()
+	if err != nil {
+		// A daemon without a panel is still a working API, so this is a
+		// warning rather than a failure to start.
+		log.Warn("the web panel is not available", slog.String("reason", err.Error()))
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("Панель не собрана. Соберите её: cd web && npm ci && npm run build\n"))
+		})
+		return mux
+	}
+
+	mux.Handle("/", panel)
+	log.Info("web panel mounted")
+	return mux
 }
 
 // bootstrapAdmin creates the first administrator on an empty database and

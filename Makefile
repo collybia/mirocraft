@@ -5,7 +5,20 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 
 export CGO_ENABLED := 0
 
-.PHONY: build build-all test test-race lint fmt tidy clean dev
+.PHONY: build build-all test test-race lint fmt tidy clean dev web web-test e2e
+
+# The Go binary embeds web/dist, so a release build makes the panel first.
+web:
+	cd web && npm ci && npm run build
+
+web-test:
+	cd web && npm test
+
+# End-to-end run against a live daemon. Pass the credentials the daemon
+# printed on its first start.
+#   make e2e URL=http://127.0.0.1:8080 EMAIL=admin@localhost PASS=...
+e2e:
+	cd web && node scripts/e2e.mjs $(URL) $(EMAIL) $(PASS) ../.e2e-shots
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/$(BINARY)

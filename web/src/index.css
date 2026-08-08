@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Base styles. Everything here reads tokens, so the whole page follows the
+ * active theme, including the scrollbars and the native form controls.
+ */
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  html[data-theme="light"] {
+    color-scheme: light;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* A theme switch should not animate every colour on the page at once, but
+     an instant flip is jarring. A short transition on the surfaces only is
+     the compromise. */
+  body,
+  .themed-surface {
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+
+  ::selection {
+    background-color: var(--accent);
+    color: var(--accent-fg);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--bg-inset);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 9999px;
+  }
+
+  input,
+  select,
+  textarea {
+    color-scheme: inherit;
+  }
+}
+
+@layer components {
+  .card {
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .field {
+    width: 100%;
+    background-color: var(--bg-inset);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.75rem;
+  }
+
+  .field::placeholder {
+    color: var(--text-faint);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.9rem;
+    font-weight: 500;
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background-color: var(--accent);
+    color: var(--accent-fg);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--accent-hover);
+  }
+
+  .btn-ghost {
+    background-color: transparent;
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    background-color: var(--bg-elevated);
+  }
+
+  .btn-danger {
+    background-color: var(--danger-bg);
+    color: var(--danger);
+    border-color: var(--danger);
+  }
+}

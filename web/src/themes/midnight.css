@@ -1,0 +1,39 @@
+/* midnight — deep blue-black on a true black ground, for OLED panels. */
+
+[data-theme="midnight"] {
+  --bg: #000000;
+  --bg-elevated: #0b111f;
+  --bg-inset: #060a12;
+
+  --text: #dbe3f4;
+  --text-muted: #9aa8c4;
+  --text-faint: #74809a;
+
+  --accent: #5b8cff;
+  --accent-hover: #7ba4ff;
+  --accent-fg: #04091a;
+
+  --success: #4ade80;
+  --success-bg: #08210f;
+  --warning: #fbbf24;
+  --warning-bg: #241a04;
+  --danger: #ff7b7b;
+  --danger-bg: #260d0d;
+  --info: #7dd3fc;
+  --info-bg: #071c2b;
+
+  --border: #1b2436;
+  --border-strong: #64708c;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 16px;
+
+  --console-bg: #04070d;
+  --console-text: #cfd9ef;
+  --console-error: #ff8f8f;
+  --console-warn: #ffd066;
+  --console-info: #8fd4ff;
+  --console-debug: #9aa8c4;
+  --console-timestamp: #74809a;
+}

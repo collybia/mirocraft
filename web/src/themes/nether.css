@@ -1,0 +1,39 @@
+/* nether — warm reds and oranges on scorched brown. */
+
+[data-theme="nether"] {
+  --bg: #1c1210;
+  --bg-elevated: #271916;
+  --bg-inset: #140c0a;
+
+  --text: #f0e0d8;
+  --text-muted: #c0a397;
+  --text-faint: #9b8074;
+
+  --accent: #ff6a3d;
+  --accent-hover: #ff8a63;
+  --accent-fg: #1a0803;
+
+  --success: #9ccc65;
+  --success-bg: #1e2812;
+  --warning: #ffb020;
+  --warning-bg: #33230a;
+  --danger: #ff7a7a;
+  --danger-bg: #331414;
+  --info: #f0a868;
+  --info-bg: #33220f;
+
+  --border: #3a2620;
+  --border-strong: #8d7267;
+
+  --radius: 8px;
+  --radius-sm: 5px;
+  --radius-lg: 14px;
+
+  --console-bg: #130b09;
+  --console-text: #e8d8d0;
+  --console-error: #ff9090;
+  --console-warn: #ffc352;
+  --console-info: #f5b47c;
+  --console-debug: #c0a397;
+  --console-timestamp: #9b8074;
+}

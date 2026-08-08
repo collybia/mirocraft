@@ -8,8 +8,12 @@ coverage.*
 
 # Node / web
 node_modules/
-web/dist/
 .vite/
+
+# The built panel is produced by CI, but the directory must exist because
+# web/embed.go embeds it — hence the committed placeholder.
+web/dist/*
+!web/dist/.gitkeep
 
 # Runtime data
 /data/

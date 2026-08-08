@@ -1,0 +1,42 @@
+/*
+ * grass — a restrained nod to the game: earthy greens and warm browns.
+ * Deliberately no pixel-art motifs; the reference is in the palette only.
+ */
+
+[data-theme="grass"] {
+  --bg: #161b14;
+  --bg-elevated: #1f2619;
+  --bg-inset: #101410;
+
+  --text: #e4ead9;
+  --text-muted: #a8b39a;
+  --text-faint: #808b74;
+
+  --accent: #8bc34a;
+  --accent-hover: #a2d861;
+  --accent-fg: #10180a;
+
+  --success: #8bc34a;
+  --success-bg: #1d2a13;
+  --warning: #e0a53c;
+  --warning-bg: #2c2210;
+  --danger: #e08272;
+  --danger-bg: #2c1a16;
+  --info: #8fc8c0;
+  --info-bg: #142624;
+
+  --border: #2c3526;
+  --border-strong: #737f66;
+
+  --radius: 8px;
+  --radius-sm: 5px;
+  --radius-lg: 14px;
+
+  --console-bg: #0f130e;
+  --console-text: #d7dfcb;
+  --console-error: #f0968a;
+  --console-warn: #f0c164;
+  --console-info: #9fd8d0;
+  --console-debug: #a8b39a;
+  --console-timestamp: #808b74;
+}

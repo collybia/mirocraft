@@ -1,0 +1,41 @@
+/* light — the light counterpart to dark. */
+
+[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-elevated: #f5f6f8;
+  --bg-inset: #eceef2;
+
+  --text: #1a1d23;
+  --text-muted: #545c6b;
+  --text-faint: #6b7280;
+
+  --accent: #157f3c;
+  --accent-hover: #0f6b31;
+  --accent-fg: #ffffff;
+
+  --success: #157f3c;
+  --success-bg: #e3f6e9;
+  --warning: #8a5a00;
+  --warning-bg: #fdf3dc;
+  --danger: #b3261e;
+  --danger-bg: #fbe6e4;
+  --info: #0b5c8a;
+  --info-bg: #e2f1fa;
+
+  --border: #d8dce3;
+  --border-strong: #767e8c;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 16px;
+
+  /* The console stays a dark surface even in the light theme: an operator
+     reads it as a terminal, and a white log wall is harder to scan. */
+  --console-bg: #14171c;
+  --console-text: #dde2ec;
+  --console-error: #ff9494;
+  --console-warn: #ffd166;
+  --console-info: #93daff;
+  --console-debug: #aab2c2;
+  --console-timestamp: #8a92a3;
+}

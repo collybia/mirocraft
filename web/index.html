@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Mirocraft</title>
+
+    <!--
+      The theme is applied before the first paint, not after React mounts.
+      Deciding in a component would mean one frame of the wrong colours on
+      every load — the flash of unstyled content the panel must not have.
+
+      The cached value is the source of truth here; the profile is fetched
+      afterwards and reconciles the cache if the user changed the theme in
+      another browser.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("mirocraft.theme") || "system";
+          var resolved = stored;
+
+          if (stored === "system") {
+            resolved = window.matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark";
+          } else if (stored.indexOf("custom:") === 0) {
+            // A custom theme is its base plus overrides; the base paints
+            // immediately and the overrides are applied once loaded.
+            var cachedVars = localStorage.getItem("mirocraft.theme.vars");
+            resolved = localStorage.getItem("mirocraft.theme.base") || "dark";
+            if (cachedVars) {
+              var vars = JSON.parse(cachedVars);
+              for (var name in vars) {
+                if (Object.prototype.hasOwnProperty.call(vars, name)) {
+                  document.documentElement.style.setProperty(name, vars[name]);
+                }
+              }
+            }
+          }
+
+          document.documentElement.setAttribute("data-theme", resolved);
+        } catch (e) {
+          // Private mode, disabled storage, corrupt JSON: fall back to the
+          // markup default rather than leaving the page unstyled.
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

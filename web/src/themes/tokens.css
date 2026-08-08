@@ -1,0 +1,63 @@
+/*
+ * The theme token contract.
+ *
+ * Every colour and radius in the panel comes from one of these variables.
+ * Components never contain a colour literal; a theme is a file that
+ * redefines these and nothing else. If a component seems to need a colour
+ * that is not here, the fix is to add a token — not an exception.
+ *
+ * The values below are the `dark` palette, which doubles as the fallback for
+ * anything a theme forgets to override.
+ *
+ * Every theme must pass WCAG AA for the pairs listed in
+ * web/src/themes/contrast.test.mjs.
+ */
+
+:root {
+  /* Surfaces, from furthest back to nearest front. */
+  --bg: #16181d;
+  --bg-elevated: #1e2128;
+  --bg-inset: #101216;
+
+  /* Text, in decreasing prominence. */
+  --text: #e6e8ee;
+  --text-muted: #a5adbd;
+  --text-faint: #7c8496;
+
+  /* Accent, plus the text colour that goes ON the accent. */
+  --accent: #4ade80;
+  --accent-hover: #6ee79c;
+  --accent-fg: #08130c;
+
+  /* Semantic colours and their subdued backgrounds. */
+  --success: #4ade80;
+  --success-bg: #16301f;
+  --warning: #fbbf24;
+  --warning-bg: #32270a;
+  --danger: #f87171;
+  --danger-bg: #331717;
+  --info: #7dd3fc;
+  --info-bg: #12293a;
+
+  /* Borders. --border-strong is for controls that must meet 3:1. */
+  --border: #2b303a;
+  --border-strong: #6b7383;
+
+  /* Radii. The theme editor lets users change these. */
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 16px;
+
+  /* Console. Log levels are tokens too, so they stay readable on any theme. */
+  --console-bg: #101216;
+  --console-text: #d7dce7;
+  --console-error: #ff8a8a;
+  --console-warn: #ffcf5c;
+  --console-info: #8ed7ff;
+  --console-debug: #a5adbd;
+  --console-timestamp: #7c8496;
+
+  /* Not themeable: shared metrics that are not colours. */
+  --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, Inter, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+}
