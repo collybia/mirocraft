@@ -650,17 +650,64 @@ func (a *API) serverStatus(ctx context.Context, serverID string) (runner.Status,
 	return a.lifecycle.Status(ctx, serverID)
 }
 
-// liveStatus prefers what the runner reports over the stored value, which can
-// be stale if a server crashed since the last write.
+// liveStatus reports what the runner says, and only falls back to the stored
+// value when there is no runner at all.
+//
+// It deliberately does not fall back when the runner simply does not know the
+// server: that means the process is not one this daemon manages, and claiming
+// "running" from a stale database row would show an operator a server whose
+// stop button cannot work. ReconcileServers turns those rows honest at
+// startup; this keeps them honest afterwards.
 func (a *API) liveStatus(ctx context.Context, server *store.Server) string {
 	if a.lifecycle == nil {
 		return server.Status
 	}
 	status, err := a.lifecycle.Status(ctx, server.ID)
 	if err != nil {
+		if errors.Is(err, runner.ErrServerNotFound) {
+			return string(runner.StatusStopped)
+		}
 		return server.Status
 	}
 	return string(status)
+}
+
+// ReconcileServers makes the stored statuses true again after a restart.
+//
+// A server is a direct child process, so when the daemon exits its children
+// are orphaned: they keep running, but no new daemon can reach their stdin or
+// read their console. The database still says "running", which would show an
+// operator a server they cannot stop, whose port is taken and whose world is
+// locked by a process nothing manages.
+//
+// Marking them stopped is the honest half. Killing the orphan is the other
+// half and needs the process tree handling from task 1.6, so for now the
+// operator is told plainly.
+func (a *API) ReconcileServers(ctx context.Context) {
+	servers, err := a.store.Servers.List(ctx, store.ServerFilter{})
+	if err != nil {
+		a.log.Warn("reconciling server statuses failed", slog.String("error", err.Error()))
+		return
+	}
+
+	for _, server := range servers {
+		if !runner.Status(server.Status).IsActive() {
+			continue
+		}
+		if a.lifecycle != nil {
+			if _, err := a.lifecycle.Status(ctx, server.ID); err == nil {
+				continue // this daemon does manage it
+			}
+		}
+
+		a.log.Warn("a server was left running by a previous daemon and is no longer manageable; "+
+			"it is now recorded as stopped, but the process may still be alive and holding its port",
+			slog.String("server_id", server.ID),
+			slog.String("name", server.Name),
+			slog.Int("port", server.Port))
+
+		a.recordStatus(ctx, server.ID, string(runner.StatusStopped))
+	}
 }
 
 // metricsFor gathers process statistics and, for a running server, the player

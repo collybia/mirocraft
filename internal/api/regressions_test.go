@@ -666,3 +666,63 @@ func copyDirForTest(from, to string) error {
 		return os.WriteFile(target, body, 0o640)
 	})
 }
+
+// A server is a direct child process, so a daemon restart orphans it: it keeps
+// running but no new daemon can reach it. The database still said "running",
+// which showed an operator a server whose stop button could not work — seen
+// on a live panel after restarting the daemon.
+func TestStatusIsHonestAboutServersThisDaemonCannotManage(t *testing.T) {
+	e := newTestEnv(t)
+
+	// The record claims to be running; the runner has never heard of it.
+	if err := e.db.Servers.UpdateStatus(t.Context(), testServerID, "running"); err != nil {
+		t.Fatalf("setting the status: %v", err)
+	}
+
+	resp := e.do(http.MethodGet, "/api/v1/servers/"+testServerID, nil, e.token)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if got := decodeJSON[serverResponse](t, resp).Status; got == "running" {
+		t.Fatal("the panel reports a server as running that this daemon cannot manage")
+	}
+}
+
+// Reconciliation must make the stored rows true, not only the responses.
+func TestReconcileServersClearsOrphanedStatuses(t *testing.T) {
+	e := newTestEnv(t)
+
+	if err := e.db.Servers.UpdateStatus(t.Context(), testServerID, "running"); err != nil {
+		t.Fatalf("setting the status: %v", err)
+	}
+
+	e.api.ReconcileServers(t.Context())
+
+	stored, err := e.db.Servers.GetByID(t.Context(), testServerID)
+	if err != nil {
+		t.Fatalf("reading the server: %v", err)
+	}
+	if stored.Status != "stopped" {
+		t.Fatalf("status = %q after reconciliation, want stopped", stored.Status)
+	}
+}
+
+// A server this daemon really is running must not be reset by reconciliation.
+func TestReconcileLeavesManagedServersAlone(t *testing.T) {
+	e := newTestEnv(t)
+	e.startServer(testServerID)
+
+	if err := e.db.Servers.UpdateStatus(t.Context(), testServerID, "running"); err != nil {
+		t.Fatalf("setting the status: %v", err)
+	}
+
+	e.api.ReconcileServers(t.Context())
+
+	stored, err := e.db.Servers.GetByID(t.Context(), testServerID)
+	if err != nil {
+		t.Fatalf("reading the server: %v", err)
+	}
+	if stored.Status != "running" {
+		t.Fatalf("status = %q, want running — this daemon does manage it", stored.Status)
+	}
+}

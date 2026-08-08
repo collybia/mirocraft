@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/collybia/mirocraft/internal/api"
+	"github.com/collybia/mirocraft/internal/backup"
 	"github.com/collybia/mirocraft/internal/config"
 	"github.com/collybia/mirocraft/internal/core"
 	"github.com/collybia/mirocraft/internal/daemon"
@@ -95,6 +96,7 @@ func run() error {
 	downloader := core.NewDownloader(filepath.Join(cfg.DataDir, "cache", "cores"), log)
 	javaMgr := java.NewManager(filepath.Join(cfg.DataDir, "java"), log)
 	provisioner := daemon.NewProvisioner(cores, downloader, javaMgr, log)
+	backups := backup.NewManager(filepath.Join(cfg.DataDir, "backups"), log)
 
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
 		return fmt.Errorf("creating data dir %s: %w", cfg.DataDir, err)
@@ -121,11 +123,16 @@ func run() error {
 		Console:     processRunner,
 		Lifecycle:   processRunner,
 		Provisioner: provisioner,
+		Backups:     backups,
 		Logger:      log,
 		DataDir:     cfg.DataDir,
 		TicketTTL:   cfg.Console.TicketTTL,
 		StopTimeout: cfg.Runner.StopTimeout,
 	})
+
+	// A previous daemon's children outlive it, so any row still claiming to be
+	// running describes a process this one cannot manage.
+	restAPI.ReconcileServers(context.Background())
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
@@ -137,6 +144,10 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Scheduled backups tick rather than sleeping to the next due time, so a
+	// schedule added while the daemon runs is picked up without a restart.
+	go restAPI.RunBackupSchedules(ctx, time.Minute)
 
 	errCh := make(chan error, 1)
 	go func() {
