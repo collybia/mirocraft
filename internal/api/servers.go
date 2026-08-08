@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/temertika/mirocraft/internal/mcping"
-	"github.com/temertika/mirocraft/internal/runner"
-	"github.com/temertika/mirocraft/internal/store"
+	"github.com/collybia/mirocraft/internal/mcping"
+	"github.com/collybia/mirocraft/internal/runner"
+	"github.com/collybia/mirocraft/internal/store"
 )
 
 // Server limits and defaults.

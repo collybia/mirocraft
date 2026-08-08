@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/temertika/mirocraft/internal/store"
+	"github.com/collybia/mirocraft/internal/store"
 )
 
 // MinPasswordLength is the shortest password accepted. Length is the only

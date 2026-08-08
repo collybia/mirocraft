@@ -17,8 +17,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/temertika/mirocraft/internal/runner"
-	"github.com/temertika/mirocraft/internal/store"
+	"github.com/collybia/mirocraft/internal/runner"
+	"github.com/collybia/mirocraft/internal/store"
 )
 
 const (

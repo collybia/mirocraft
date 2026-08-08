@@ -11,7 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/temertika/mirocraft/internal/runner"
+	"github.com/collybia/mirocraft/internal/runner"
 )
 
 // Console history bounds from docs/API.md.

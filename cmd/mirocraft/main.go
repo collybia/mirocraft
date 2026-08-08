@@ -17,11 +17,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/temertika/mirocraft/internal/api"
-	"github.com/temertika/mirocraft/internal/config"
-	"github.com/temertika/mirocraft/internal/runner"
-	"github.com/temertika/mirocraft/internal/store"
-	"github.com/temertika/mirocraft/web"
+	"github.com/collybia/mirocraft/internal/api"
+	"github.com/collybia/mirocraft/internal/config"
+	"github.com/collybia/mirocraft/internal/runner"
+	"github.com/collybia/mirocraft/internal/store"
+	"github.com/collybia/mirocraft/web"
 )
 
 // version is stamped at build time with -ldflags.

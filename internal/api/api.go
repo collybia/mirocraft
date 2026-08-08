@@ -8,7 +8,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/temertika/mirocraft/internal/store"
+	"github.com/collybia/mirocraft/internal/store"
 )
 
 // Defaults applied when Options leaves a field zero.

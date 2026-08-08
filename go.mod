@@ -1,4 +1,4 @@
-module github.com/temertika/mirocraft
+module github.com/collybia/mirocraft
 
 go 1.26.5
 

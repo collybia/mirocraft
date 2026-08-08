@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/temertika/mirocraft/internal/store"
+	"github.com/collybia/mirocraft/internal/store"
 )
 
 // --- login ---

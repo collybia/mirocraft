@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/temertika/mirocraft/internal/store"
+	"github.com/collybia/mirocraft/internal/store"
 )
 
 // Token scopes from docs/API.md.

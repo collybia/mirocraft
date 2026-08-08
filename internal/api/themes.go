@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/temertika/mirocraft/internal/store"
+	"github.com/collybia/mirocraft/internal/store"
 )
 
 // ThemeSchema is the version tag on exported and imported themes.

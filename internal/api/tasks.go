@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/temertika/mirocraft/internal/store"
+	"github.com/collybia/mirocraft/internal/store"
 )
 
 // Task states from docs/API.md.
