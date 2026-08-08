@@ -30,6 +30,28 @@ func HashPassword(plain string) (string, error) {
 	return string(hash), nil
 }
 
+// decoyHash is a valid bcrypt hash of a value nobody knows, used to spend the
+// same time on a login for an address that does not exist. Computed once at
+// startup, because generating it per request would itself be slower than a
+// comparison and reintroduce a timing difference in the other direction.
+var decoyHash = mustDecoyHash()
+
+func mustDecoyHash() []byte {
+	// The plaintext is irrelevant and never compared against anything real.
+	hash, err := bcrypt.GenerateFromPassword([]byte("mirocraft-timing-decoy"), bcryptCost)
+	if err != nil {
+		panic("store: cannot generate the decoy hash: " + err.Error())
+	}
+	return hash
+}
+
+// BurnPasswordCheck spends the same time a real password check would, so that
+// a caller can answer a request about an unknown account without the response
+// time revealing that it is unknown.
+func BurnPasswordCheck(plain string) {
+	_ = bcrypt.CompareHashAndPassword(decoyHash, []byte(plain))
+}
+
 // CheckPassword verifies a plaintext password against a stored hash.
 func CheckPassword(hash, plain string) error {
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain)); err != nil {

@@ -35,7 +35,11 @@ const (
 
 // serverNamePattern keeps names safe to use as directory names, which is what
 // they become on disk.
-var serverNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9 _-]{0,62}[a-zA-Z0-9]$`)
+// A name must start and end with an alphanumeric so it cannot be pure
+// punctuation or carry leading and trailing spaces, but a single character is
+// a perfectly good name — hence the alternation rather than a bare
+// start-middle-end pattern, which silently imposed a two-character minimum.
+var serverNamePattern = regexp.MustCompile(`^[a-zA-Z0-9]$|^[a-zA-Z0-9][a-zA-Z0-9 _-]{0,62}[a-zA-Z0-9]$`)
 
 // Lifecycle is the slice of the runner the server endpoints need beyond the
 // console.
@@ -176,7 +180,8 @@ func (a *API) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateServerName(req.Name); err != nil {
+	name, err := normalizeServerName(req.Name)
+	if err != nil {
 		writeFieldError(w, "name", err.Error())
 		return
 	}
@@ -209,7 +214,7 @@ func (a *API) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ok := a.enforceUserLimits(w, r, principal, req.RAMMb); !ok {
+	if ok := a.enforceUserLimits(w, r, principal, req.RAMMb, allChecks); !ok {
 		return
 	}
 
@@ -219,7 +224,7 @@ func (a *API) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	server := &store.Server{
-		OwnerID: principal.UserID, Name: req.Name, Core: req.Core, Version: req.Version,
+		OwnerID: principal.UserID, Name: name, Core: req.Core, Version: req.Version,
 		Kind: kind, Status: string(runner.StatusStopped), RAMMb: req.RAMMb, Port: port,
 		JavaArgs: req.JavaArgs, EULAAccepted: true,
 		AutoStart: req.AutoStart, AutoRestart: req.AutoRestart,
@@ -259,15 +264,27 @@ func (a *API) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, toServerResponse(server))
 }
 
-// enforceUserLimits checks the caller's server count and RAM allowance.
-func (a *API) enforceUserLimits(w http.ResponseWriter, r *http.Request, principal *Principal, ramMb int) bool {
+// limitChecks selects which allowances enforceUserLimits applies.
+type limitChecks int
+
+const (
+	// allChecks applies both the server count and the memory allowance.
+	allChecks limitChecks = iota
+	// skipCountCheck applies only the memory allowance, for changes to a
+	// server that already exists and is therefore already counted.
+	skipCountCheck
+)
+
+// enforceUserLimits checks the caller's server count and RAM allowance, where
+// ramMb is the additional memory the request would allocate.
+func (a *API) enforceUserLimits(w http.ResponseWriter, r *http.Request, principal *Principal, ramMb int, checks limitChecks) bool {
 	user, err := a.store.Users.GetByID(r.Context(), principal.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternalError, "could not read the account")
 		return false
 	}
 
-	if user.MaxServers > store.Unlimited {
+	if checks == allChecks && user.MaxServers > store.Unlimited {
 		count, err := a.store.Servers.CountByOwner(r.Context(), user.ID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, CodeInternalError, "could not count servers")
@@ -348,16 +365,27 @@ func (a *API) handlePatchServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Name != nil {
-		if err := validateServerName(*req.Name); err != nil {
+		name, err := normalizeServerName(*req.Name)
+		if err != nil {
 			writeFieldError(w, "name", err.Error())
 			return
 		}
-		server.Name = *req.Name
+		server.Name = name
 	}
 	if req.RAMMb != nil {
 		if *req.RAMMb < MinRAMMb || *req.RAMMb > MaxRAMMb {
 			writeFieldError(w, "ram_mb", "ram_mb must be between 512 and 524288")
 			return
+		}
+		// The quota has to be checked here too, or it is no quota at all: a
+		// user could create a small server within their allowance and then
+		// patch it up to the global maximum. What is being added is the
+		// difference, since this server's current allocation is already
+		// counted in the total.
+		if delta := *req.RAMMb - server.RAMMb; delta > 0 {
+			if !a.enforceUserLimits(w, r, principal, delta, skipCountCheck) {
+				return
+			}
 		}
 		server.RAMMb = *req.RAMMb
 	}
@@ -406,7 +434,7 @@ func (a *API) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 
 	// A running server is stopped first, so its files are not pulled out from
 	// under a live process.
-	if status, err := a.lifecycle.Status(r.Context(), serverID); err == nil && status.IsActive() {
+	if status, err := a.serverStatus(r.Context(), serverID); err == nil && status.IsActive() {
 		if err := a.lifecycle.Kill(r.Context(), serverID); err != nil {
 			a.log.Warn("killing the server before deletion failed",
 				slog.String("server_id", serverID), slog.String("error", err.Error()))
@@ -452,7 +480,13 @@ func (a *API) handlePower(w http.ResponseWriter, r *http.Request) {
 		timeout = a.stopTimeout
 	}
 
-	status, _ := a.lifecycle.Status(r.Context(), serverID)
+	if a.lifecycle == nil {
+		writeError(w, http.StatusServiceUnavailable, CodeInternalError,
+			"no runner is configured on this node")
+		return
+	}
+
+	status, _ := a.serverStatus(r.Context(), serverID)
 	switch req.Action {
 	case ActionStart:
 		if status.IsActive() {
@@ -495,7 +529,7 @@ func (a *API) runPower(ctx context.Context, server *store.Server, action string,
 			return err
 		}
 	case ActionRestart:
-		if status, err := a.lifecycle.Status(ctx, server.ID); err == nil && status.IsActive() {
+		if status, err := a.serverStatus(ctx, server.ID); err == nil && status.IsActive() {
 			if err := a.lifecycle.Stop(ctx, server.ID, timeout); err != nil {
 				return err
 			}
@@ -537,6 +571,17 @@ func splitJavaArgs(args string) []string {
 		return nil
 	}
 	return fields
+}
+
+// serverStatus asks the runner for the current state. The nil check is not
+// defensive clutter: Options.Lifecycle is optional, and every other reader of
+// it guards, so the power and delete paths must too rather than panicking in
+// a goroutine that has no recover above it.
+func (a *API) serverStatus(ctx context.Context, serverID string) (runner.Status, error) {
+	if a.lifecycle == nil {
+		return runner.StatusStopped, runner.ErrRunnerUnavailable
+	}
+	return a.lifecycle.Status(ctx, serverID)
 }
 
 // liveStatus prefers what the runner reports over the stored value, which can
@@ -584,18 +629,26 @@ func (a *API) metricsFor(ctx context.Context, server *store.Server, status strin
 	return metrics
 }
 
-func validateServerName(name string) error {
+// normalizeServerName validates a name and returns the form to store.
+//
+// It returns the trimmed value rather than only validating it, for the same
+// reason emails are normalized: validating a trimmed copy and storing the raw
+// input would save a name that nothing else matches. Here the consequence is
+// that DELETE ?confirm=<name> could never succeed, leaving the owner unable to
+// remove their own server.
+func normalizeServerName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return errors.New("a name is required")
+		return "", errors.New("a name is required")
 	}
 	if len([]rune(name)) > MaxServerLen {
-		return errors.New("name must be at most 64 characters")
+		return "", errors.New("name must be at most 64 characters")
 	}
 	// The name becomes part of a path, so anything that could traverse or
 	// confuse a filesystem is refused rather than escaped.
 	if !serverNamePattern.MatchString(name) {
-		return errors.New("name may contain only letters, digits, spaces, hyphens and underscores")
+		return "", errors.New("name may contain only letters, digits, spaces, hyphens and underscores, " +
+			"and must start and end with a letter or a digit")
 	}
-	return nil
+	return name, nil
 }

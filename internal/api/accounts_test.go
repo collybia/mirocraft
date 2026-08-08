@@ -307,13 +307,18 @@ func TestPatchMeRejectsShortPassword(t *testing.T) {
 	}
 }
 
-func TestPatchMeRejectsInvalidEmail(t *testing.T) {
+// "not-an-email" is now a perfectly good plain login, so the rejected cases
+// are the ones that are neither a valid login nor a valid address.
+func TestPatchMeRejectsInvalidIdentifier(t *testing.T) {
 	e := newTestEnv(t)
 
-	bad := "not-an-email"
-	resp := e.do(http.MethodPatch, "/api/v1/users/me", patchMeRequest{Email: &bad}, e.token)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	for _, bad := range []string{"not@an@address", "ad min", "ad/min", "_leading", "   "} {
+		resp := e.do(http.MethodPatch, "/api/v1/users/me",
+			patchMeRequest{Email: &bad}, e.token)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("identifier %q gave %d, want 400", bad, resp.StatusCode)
+		}
+		_ = resp.Body.Close()
 	}
 }
 
@@ -519,10 +524,11 @@ func TestAdminCreateUserValidation(t *testing.T) {
 		name string
 		req  createUserRequest
 	}{
-		{"bad email", createUserRequest{Email: "nope", Password: "a long enough password"}},
+		{"broken address", createUserRequest{Email: "not@an@address", Password: "a long enough password"}},
+		{"space in the login", createUserRequest{Email: "no pe", Password: "a long enough password"}},
 		{"short password", createUserRequest{Email: "x@example.com", Password: "short"}},
 		{"unknown role", createUserRequest{Email: "x@example.com", Password: "a long enough password", Role: "root"}},
-		{"duplicate email", createUserRequest{Email: "owner@example.com", Password: "a long enough password"}},
+		{"duplicate identifier", createUserRequest{Email: "owner@example.com", Password: "a long enough password"}},
 	}
 
 	for _, tc := range tests {

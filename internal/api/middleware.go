@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/collybia/mirocraft/internal/store"
 )
 
 // Rate limit defaults from docs/API.md.
@@ -113,9 +115,11 @@ func (a *API) rateLimit(limiter *rateLimiter, keyOf func(*http.Request) string) 
 // unauthenticated requests so a missing token cannot dodge the limit.
 func tokenKey(r *http.Request) string {
 	if raw, ok := bearerToken(r); ok {
-		// The raw token is hashed in the store; here only its identity
-		// matters, and the key never leaves memory.
-		return "token:" + raw
+		// Hashed rather than used directly: the limiter map outlives the
+		// request, so raw bearer tokens would sit in long-lived memory for no
+		// reason. Only the identity of the token matters here, and a hash
+		// carries that just as well.
+		return "token:" + store.HashToken(raw)
 	}
 	return "ip:" + clientIP(r)
 }

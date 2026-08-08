@@ -245,7 +245,12 @@ func (a *API) handlePatchCustomTheme(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Seeded from the stored theme so an omitted name or base keeps its value,
+	// but Vars is cleared first: json.Unmarshal MERGES into a non-nil map, so
+	// leaving it populated would make removing a variable impossible — the
+	// deleted override would silently survive every save.
 	doc := toThemeDocument(theme)
+	doc.Vars = nil
 	if !decodeBody(w, r, &doc) {
 		return
 	}

@@ -371,7 +371,7 @@ function AccountSection({ user }: { user: api.Me }) {
     <section className="card p-5">
       <h2 className="mb-1 font-semibold">Аккаунт</h2>
       <p className="mb-4 text-sm text-muted">
-        {user.email} · роль: {user.role === "admin" ? "администратор" : "пользователь"}
+        Логин: {user.email} · роль: {user.role === "admin" ? "администратор" : "пользователь"}
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">

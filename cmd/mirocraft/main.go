@@ -98,7 +98,7 @@ func run() error {
 	defer func() { _ = db.Close() }()
 	log.Info("database ready", slog.String("path", dbPath))
 
-	if err := bootstrapAdmin(context.Background(), db, log); err != nil {
+	if err := bootstrapAdmin(context.Background(), db, cfg.DataDir, log); err != nil {
 		return err
 	}
 
@@ -186,7 +186,7 @@ func rootHandler(apiHandler http.Handler, log *slog.Logger) http.Handler {
 // The password is generated rather than defaulted: a well-known first-run
 // credential on a panel that is, by design, reachable from the internet is a
 // standing invitation.
-func bootstrapAdmin(ctx context.Context, db *store.Store, log *slog.Logger) error {
+func bootstrapAdmin(ctx context.Context, db *store.Store, dataDir string, log *slog.Logger) error {
 	count, err := db.Users.Count(ctx)
 	if err != nil {
 		return err
@@ -204,24 +204,47 @@ func bootstrapAdmin(ctx context.Context, db *store.Store, log *slog.Logger) erro
 		return err
 	}
 
-	admin := &store.User{Email: "admin@localhost", PasswordHash: hash, Role: store.RoleAdmin}
+	// A plain login rather than an address: the daemon sends no mail, and
+	// "admin@localhost" only invites the question of which mailbox that is.
+	admin := &store.User{Email: "admin", PasswordHash: hash, Role: store.RoleAdmin}
 	if err := db.Users.Create(ctx, admin); err != nil {
 		return fmt.Errorf("creating the first admin: %w", err)
 	}
 
-	// Straight to stdout, not the logger: this must not end up in a log
-	// aggregator, and it is shown exactly once.
+	// Printed to stdout rather than through the logger, so it is not shipped
+	// with structured logs.
+	//
+	// That is only half the problem: under systemd, stdout IS the journal, so
+	// the password lands in it anyway. It is therefore also written to a
+	// file readable only by the daemon's own user, and the message says so —
+	// an operator who runs the daemon as a service has somewhere to look
+	// besides `journalctl`.
+	//
 	// Deliberately without box drawing: aligning a frame around text that
 	// mixes Cyrillic and generated tokens breaks in every terminal that
 	// disagrees about character width.
+	credentialsPath := filepath.Join(dataDir, "initial-admin.txt")
+	body := fmt.Sprintf(
+		"login: %s\npassword: %s\n\nСмените пароль после первого входа и удалите этот файл.\n",
+		admin.Email, password)
+	// 0600: readable only by the user the daemon runs as.
+	if err := os.WriteFile(credentialsPath, []byte(body), 0o600); err != nil {
+		log.Warn("could not write the initial credentials file",
+			slog.String("path", credentialsPath), slog.String("error", err.Error()))
+		credentialsPath = ""
+	}
+
 	fmt.Println()
 	fmt.Println("  ── Первый запуск: создан администратор ──")
 	fmt.Println()
 	fmt.Println("     Логин:  " + admin.Email)
 	fmt.Println("     Пароль: " + password)
 	fmt.Println()
-	fmt.Println("  Пароль показывается один раз. Сохраните его")
-	fmt.Println("  и смените после первого входа.")
+	fmt.Println("  Смените пароль после первого входа.")
+	if credentialsPath != "" {
+		fmt.Println("  Он также записан в " + credentialsPath + " — удалите файл,")
+		fmt.Println("  когда сохраните пароль.")
+	}
 	fmt.Println()
 
 	log.Info("first admin account created", slog.String("email", admin.Email))

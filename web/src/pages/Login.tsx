@@ -26,7 +26,7 @@ export function Login({ onLoggedIn }: Props) {
       if (err instanceof api.ApiError && err.code === "rate_limited") {
         setError("Слишком много попыток. Подождите минуту.");
       } else {
-        setError("Неверный email или пароль.");
+        setError("Неверный логин или пароль.");
       }
     } finally {
       setBusy(false);
@@ -40,15 +40,22 @@ export function Login({ onLoggedIn }: Props) {
         <p className="mb-6 text-sm text-muted">Панель управления серверами</p>
 
         <label className="mb-1 block text-sm text-muted" htmlFor="email">
-          Email
+          Логин
         </label>
+        {/* Deliberately not type="email": the panel accepts a plain login too,
+            and the browser's own validation would reject one before the
+            request is ever sent. */}
         <input
           id="email"
-          type="email"
+          type="text"
           autoComplete="username"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          placeholder="admin"
           className="field mb-4"
         />
 

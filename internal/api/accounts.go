@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/mail"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,6 +19,14 @@ import (
 // rule: composition requirements push people towards predictable patterns
 // without adding real strength.
 const MinPasswordLength = 10
+
+// MaxLoginLength is the longest login accepted, matching the practical limit
+// on an email address.
+const MaxLoginLength = 254
+
+// loginPattern accepts a plain login: alphanumeric at both ends, with dots,
+// hyphens and underscores allowed inside.
+var loginPattern = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,62}[a-zA-Z0-9])?$`)
 
 // --- wire types ---
 
@@ -128,8 +137,13 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	user, err := a.store.Users.GetByEmail(r.Context(), req.Email)
 	if err != nil {
-		// Wrong email and wrong password give the same answer, so the endpoint
-		// cannot be used to enumerate registered addresses.
+		// Identical bodies are not enough on their own: returning here without
+		// hashing would answer an unknown address in microseconds and a known
+		// one only after bcrypt, which is tens of milliseconds and trivially
+		// measurable over the network. That timing difference is the same
+		// enumeration oracle the identical bodies exist to prevent, so the
+		// work is done anyway against a decoy hash.
+		store.BurnPasswordCheck(req.Password)
 		a.failLogin(w, r, req.Email, "unknown email")
 		return
 	}
@@ -252,11 +266,12 @@ func (a *API) handlePatchMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Email != nil {
-		if err := validateEmail(*req.Email); err != nil {
+		email, err := normalizeLogin(*req.Email)
+		if err != nil {
 			writeFieldError(w, "email", err.Error())
 			return
 		}
-		user.Email = *req.Email
+		user.Email = email
 	}
 
 	if req.Password != nil {
@@ -424,7 +439,8 @@ func (a *API) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	if err := validateEmail(req.Email); err != nil {
+	email, err := normalizeLogin(req.Email)
+	if err != nil {
 		writeFieldError(w, "email", err.Error())
 		return
 	}
@@ -448,7 +464,7 @@ func (a *API) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := &store.User{
-		Email: req.Email, PasswordHash: hash, Role: role,
+		Email: email, PasswordHash: hash, Role: role,
 		MaxServers: req.MaxServers, MaxRAMMb: req.MaxRAMMb, MaxDiskMb: req.MaxDiskMb,
 	}
 	if err := a.store.Users.Create(r.Context(), user); err != nil {
@@ -579,15 +595,44 @@ func writeFieldError(w http.ResponseWriter, field, reason string) {
 		map[string]any{"field": field, "reason": reason})
 }
 
-func validateEmail(email string) error {
-	email = strings.TrimSpace(email)
-	if email == "" {
-		return errors.New("email is required")
+// normalizeLogin validates an account identifier and returns the form to
+// store. Both a plain login and an email address are accepted.
+//
+// A plain login is allowed because the panel is normally installed on someone
+// else's VPS for their own use: there is no mail anywhere in the daemon, and
+// insisting on an address-shaped identifier would be friction for nothing.
+// The field is still called `email` on the wire, since that is what
+// docs/API.md specifies and subuser invitations will use a real address.
+//
+// Returning the normalized value rather than only validating matters:
+// mail.ParseAddress accepts `Alice <alice@example.com>` and ignores
+// surrounding whitespace, so storing the raw input would save something that
+// GetByEmail — which compares lower(email) literally — can never match again,
+// locking the account out of its own login.
+func normalizeLogin(login string) (string, error) {
+	trimmed := strings.TrimSpace(login)
+	if trimmed == "" {
+		return "", errors.New("a login is required")
 	}
-	if _, err := mail.ParseAddress(email); err != nil {
-		return errors.New("email is not a valid address")
+	if len([]rune(trimmed)) > MaxLoginLength {
+		return "", errors.New("login must be at most 254 characters")
 	}
-	return nil
+
+	// Anything carrying an @ is treated as an address, so a typo in an email
+	// is reported as a bad address rather than silently stored as a login.
+	if strings.Contains(trimmed, "@") {
+		parsed, err := mail.ParseAddress(trimmed)
+		if err != nil || parsed.Address == "" {
+			return "", errors.New("email is not a valid address")
+		}
+		return parsed.Address, nil
+	}
+
+	if !loginPattern.MatchString(trimmed) {
+		return "", errors.New("login may contain only letters, digits, dots, hyphens and underscores, " +
+			"and must start and end with a letter or a digit")
+	}
+	return trimmed, nil
 }
 
 func validatePassword(password string) error {

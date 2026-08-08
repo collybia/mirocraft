@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -260,8 +261,19 @@ func (a *API) runConsoleSocket(parent context.Context, conn *websocket.Conn, ser
 	}
 
 	// Fan the two subscriptions into the writer.
+	//
+	// The wait group is not decoration: outbound must not be closed while this
+	// goroutine can still send on it. A select with a ready ctx.Done() still
+	// picks a ready line case at random, so cancelling is not enough — the
+	// sender has to be observed finished before the channel closes, or a
+	// disconnect that races a log line panics with "send on closed channel"
+	// and takes the whole daemon, and every server it runs, down with it.
+	var fanOut sync.WaitGroup
+	fanOut.Add(1)
 	go func() {
+		defer fanOut.Done()
 		defer cancel()
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -283,6 +295,7 @@ func (a *API) runConsoleSocket(parent context.Context, conn *websocket.Conn, ser
 	a.readPump(ctx, conn, serverID, userID, outbound)
 
 	cancel()
+	fanOut.Wait()
 	close(outbound)
 	<-writerDone
 }
