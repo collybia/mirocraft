@@ -31,6 +31,7 @@ type Store struct {
 	Tokens       *TokenRepo
 	Servers      *ServerRepo
 	Backups      *BackupRepo
+	Webhooks     *WebhookRepo
 	CustomThemes *CustomThemeRepo
 	Audit        *AuditRepo
 }
@@ -73,6 +74,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	s.Tokens = &TokenRepo{db: db}
 	s.Servers = &ServerRepo{db: db}
 	s.Backups = &BackupRepo{db: db}
+	s.Webhooks = &WebhookRepo{db: db}
 	s.CustomThemes = &CustomThemeRepo{db: db}
 	s.Audit = &AuditRepo{db: db}
 

@@ -595,6 +595,15 @@ func (a *API) startServer(ctx context.Context, server *store.Server) error {
 		return err
 	}
 	a.recordStatus(ctx, server.ID, string(runner.StatusRunning))
+
+	// One watcher per running server turns its console and status into events
+	// for the bus. Started here rather than per client, so ten browser tabs
+	// cost one subscription rather than ten.
+	//
+	// The watcher's context outlives the request that started the server; it
+	// ends when the server's own subscriptions close, which the runner does
+	// when the process exits.
+	a.WatchServer(context.WithoutCancel(ctx), server.ID, server.OwnerID)
 	return nil
 }
 

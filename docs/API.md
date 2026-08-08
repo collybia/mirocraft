@@ -383,28 +383,91 @@ Action: `{type: "command"|"power"|"backup", payload: {...}}` — выполня�
 
 ### WebSocket-шина
 
-`WS /events` (тикет как у консоли) — все события по серверам пользователя:
+| Метод | Путь | Scope | Описание |
+|---|---|---|---|
+| POST | /events/ticket | `servers:read` | `{ticket, expires_at}`, TTL 30 с, одноразовый |
+| GET | /events?token={ticket} | — | апгрейд до WebSocket |
+
+Тикет — тот же механизм, что у консоли, и по той же причине: браузер не может
+задать заголовок `Authorization` на апгрейде, а токен в URL оседает в логах
+прокси и в истории браузера. Консольный тикет здесь **не принимается** (403):
+он выписан на один сервер, а шина отдаёт события всего аккаунта.
+
+Клиент получает события своих серверов; администратор — всех. Медленный клиент
+теряет события, а не тормозит демон: очередь на подписчика 128 событий, дальше
+события отбрасываются.
+
+Каждое сообщение — одно событие:
 
 ```json
-{ "type": "server.status_changed", "server_id": "...", "data": { "from": "starting", "to": "running" } }
-{ "type": "server.crashed", "server_id": "...", "data": { "exit_code": 1 } }
-{ "type": "backup.completed", "server_id": "...", "data": { "backup_id": "..." } }
-{ "type": "player.joined", "server_id": "...", "data": { "name": "Steve" } }
-{ "type": "player.left", "server_id": "...", "data": { "name": "Steve" } }
-{ "type": "task.updated", "data": { "task_id": "...", "progress": 40 } }
+{ "type": "server.status_changed", "server_id": "...", "at": "2026-08-08T12:00:00Z", "data": { "status": "running" } }
+{ "type": "server.crashed",        "server_id": "...", "at": "..." }
+{ "type": "backup.completed",      "server_id": "...", "at": "...", "data": { "backup_id": "...", "size_bytes": 24117248 } }
+{ "type": "backup.failed",         "server_id": "...", "at": "...", "data": { "backup_id": "...", "error": "..." } }
+{ "type": "player.joined",         "server_id": "...", "at": "...", "data": { "name": "Steve" } }
+{ "type": "player.left",           "server_id": "...", "at": "...", "data": { "name": "Steve" } }
+{ "type": "task.updated",          "server_id": "...", "at": "...", "data": { "task_id": "...", "kind": "install", "status": "done", "progress": 100, "error": "" } }
 ```
+
+Владелец сервера в событии не передаётся: подписчик и так знает, кто он, а
+чужой идентификатор — лишняя утечка без пользы.
+
+`player.joined` и `player.left` вычитываются из консоли: протокол Minecraft о
+входе не сообщает, а статус-пинг отдаёт лишь усечённую выборку имён. Имя должно
+выглядеть как имя Mojang (`[A-Za-z0-9_]{3,16}`), иначе строка игнорируется —
+фраза в чате «Herobrine joined the game» событием не станет.
 
 ### Webhooks
 
-| Метод | Путь | Описание |
-|---|---|---|
-| GET | /webhooks | список |
-| POST | /webhooks | `{url, events[], secret}` |
-| DELETE | /webhooks/{id} | удалить |
-| POST | /webhooks/{id}/test | отправить тестовое событие |
+| Метод | Путь | Scope | Описание |
+|---|---|---|---|
+| GET | /webhooks | `servers:read` | список |
+| POST | /webhooks | `servers:write` | `{url, events[], secret, enabled?}` |
+| DELETE | /webhooks/{id} | `servers:write` | удалить |
+| POST | /webhooks/{id}/test | `servers:write` | 202, тестовое событие уходит через шину |
 
-Доставка: POST JSON, подпись `X-Mirocraft-Signature: sha256=<hmac>`,
-ретраи 3 раза с экспоненциальной задержкой. На этом строится интеграция ботов.
+Регистрация хука требует `servers:write`, а не `servers:read`: это не чтение
+аккаунта, а создание исходящего запроса, который демон будет делать сам.
+
+`secret` обязателен, минимум 8 символов — без него получатель не может
+проверить подпись, и подписывание теряет смысл. Обратно секрет не отдаётся
+никогда, только `has_secret`. На аккаунт не более 20 хуков.
+
+Доставка: `POST` с телом события, заголовки
+
+```
+X-Mirocraft-Event:     server.crashed
+X-Mirocraft-Delivery:  server.crashed-1754654400000000000
+X-Mirocraft-Signature: sha256=<hmac-sha256 тела ключом secret>
+```
+
+Три попытки, задержка удваивается начиная с 2 с. Ответ 4xx (кроме 429) —
+получатель понял и отказал, повтор не поможет, поэтому попытки прекращаются.
+`X-Mirocraft-Delivery` одинаков у повторов одного события — по нему получатель
+отбрасывает дубль.
+
+Результат последней доставки виден в списке: `last_status`, `last_error`,
+`last_attempt_at`, `last_success_at`, `failure_count`.
+
+**Приватные адреса.** URL хука задаёт пользователь, а запрос выполняет демон —
+это ровно форма SSRF: хук на `169.254.169.254` или на собственный порт панели
+превращает её в прокси по своей же сети. Поэтому loopback, приватные и
+link-local адреса по умолчанию отвергаются. Оператору, у которого бот живёт на
+той же машине, это включается осознанно:
+
+```yaml
+webhooks:
+  allow_private_hosts: true
+```
+
+Проверка подписи на стороне получателя (Go):
+
+```go
+mac := hmac.New(sha256.New, []byte(secret))
+mac.Write(body)
+expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+ok := hmac.Equal([]byte(expected), []byte(r.Header.Get("X-Mirocraft-Signature")))
+```
 
 ---
 

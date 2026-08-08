@@ -150,6 +150,21 @@ func (a *API) requireAdmin(next http.Handler) http.Handler {
 	})
 }
 
+// requireScope checks a scope on an endpoint that is not about one server. It
+// writes the error response itself and reports whether the request may go on.
+func requireScope(w http.ResponseWriter, r *http.Request, scope string) (*Principal, bool) {
+	principal, ok := principalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, CodeUnauthorized, "not authenticated")
+		return nil, false
+	}
+	if !principal.HasScope(scope) {
+		writeError(w, http.StatusForbidden, CodeForbidden, "token is missing the "+scope+" scope")
+		return nil, false
+	}
+	return principal, true
+}
+
 // authorizeServer checks that the principal holds the scope and may access the
 // server. It writes the error response itself and reports whether the request
 // may continue.

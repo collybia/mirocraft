@@ -42,9 +42,22 @@ type Config struct {
 	// DataDir holds server directories, backups and the database.
 	DataDir string `yaml:"data_dir"`
 
-	Log     LogConfig     `yaml:"log"`
-	Runner  RunnerConfig  `yaml:"runner"`
-	Console ConsoleConfig `yaml:"console"`
+	Log      LogConfig     `yaml:"log"`
+	Runner   RunnerConfig  `yaml:"runner"`
+	Console  ConsoleConfig `yaml:"console"`
+	Webhooks WebhookConfig `yaml:"webhooks"`
+}
+
+// WebhookConfig configures outbound webhook delivery.
+type WebhookConfig struct {
+	// AllowPrivateHosts permits delivery to loopback and private addresses.
+	//
+	// Off by default: a webhook URL is user-supplied and fetched by the
+	// daemon, which is the shape of a server-side request forgery — a hook
+	// pointing at a cloud metadata endpoint or at the panel's own port turns
+	// it into a proxy for its own network. An operator whose bot runs on the
+	// same box can turn it on knowingly.
+	AllowPrivateHosts bool `yaml:"allow_private_hosts"`
 }
 
 // LogConfig configures slog.

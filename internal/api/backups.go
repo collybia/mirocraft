@@ -12,6 +12,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/collybia/mirocraft/internal/backup"
+	"github.com/collybia/mirocraft/internal/events"
 	"github.com/collybia/mirocraft/internal/store"
 )
 
@@ -164,12 +165,25 @@ func (a *API) runBackup(ctx context.Context, server *store.Server, record *store
 			a.log.Warn("recording the failed backup state failed",
 				slog.String("backup_id", record.ID), slog.String("error", setErr.Error()))
 		}
+		a.events.Publish(events.Event{
+			Type:     events.TypeBackupFailed,
+			ServerID: server.ID,
+			OwnerID:  server.OwnerID,
+			Data:     map[string]any{"backup_id": record.ID, "error": err.Error()},
+		})
 		return err
 	}
 
 	if err := a.store.Backups.Finish(ctx, record.ID, store.BackupDone, path, size); err != nil {
 		return err
 	}
+
+	a.events.Publish(events.Event{
+		Type:     events.TypeBackupCompleted,
+		ServerID: server.ID,
+		OwnerID:  server.OwnerID,
+		Data:     map[string]any{"backup_id": record.ID, "size_bytes": size},
+	})
 
 	a.pruneBackups(ctx, server.ID)
 	return nil

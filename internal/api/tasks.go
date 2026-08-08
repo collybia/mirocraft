@@ -43,6 +43,10 @@ type Task struct {
 type taskRegistry struct {
 	mu    sync.Mutex
 	tasks map[string]*Task
+
+	// onFinish is called once a task settles, so the event bus can report it
+	// without the registry having to know what a bus is.
+	onFinish func(Task)
 }
 
 func newTaskRegistry() *taskRegistry {
@@ -84,6 +88,11 @@ func (reg *taskRegistry) start(kind, serverID, userID string, fn func(context.Co
 			}
 			t.Status = TaskDone
 		})
+
+		if reg.onFinish != nil {
+			finished, _ := reg.get(task.ID)
+			reg.onFinish(finished)
+		}
 	}()
 
 	return task

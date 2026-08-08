@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/collybia/mirocraft/internal/backup"
+	"github.com/collybia/mirocraft/internal/events"
 	"github.com/collybia/mirocraft/internal/store"
 )
 
@@ -39,6 +40,9 @@ type Options struct {
 	// Backups archives and restores server directories. Nil disables the
 	// backup endpoints rather than failing them obscurely.
 	Backups *backup.Manager
+
+	// Events is the bus the panel and the webhooks read. Nil creates one.
+	Events *events.Bus
 
 	// DataDir is where server directories are created.
 	DataDir string
@@ -72,6 +76,7 @@ type API struct {
 	lifecycle   Lifecycle
 	provisioner Provisioner
 	backups     *backup.Manager
+	events      *events.Bus
 	ping        Pinger
 	tickets     *TicketStore
 	tasks       *taskRegistry
@@ -108,6 +113,11 @@ func New(opts Options) *API {
 		loginLimit = DefaultLoginRateLimit
 	}
 
+	bus := opts.Events
+	if bus == nil {
+		bus = events.NewBus()
+	}
+
 	upgrader := websocket.Upgrader{
 		HandshakeTimeout: 10 * time.Second,
 		ReadBufferSize:   4096,
@@ -130,13 +140,14 @@ func New(opts Options) *API {
 		stopTimeout = DefaultStopTimeout
 	}
 
-	return &API{
+	a := &API{
 		store:        opts.Store,
 		console:      opts.Console,
 		lifecycle:    opts.Lifecycle,
 		provisioner:  opts.Provisioner,
 		ping:         opts.Ping,
 		backups:      opts.Backups,
+		events:       bus,
 		tickets:      NewTicketStore(opts.TicketTTL),
 		tasks:        newTaskRegistry(),
 		dataDir:      dataDir,
@@ -149,6 +160,35 @@ func New(opts Options) *API {
 		limiter:      newRateLimiter(limit, rateWindow),
 		loginLimiter: newRateLimiter(loginLimit, rateWindow),
 	}
+
+	// A finished task is worth knowing about: the panel can stop polling and
+	// a webhook can report the outcome.
+	a.tasks.onFinish = func(task Task) {
+		a.events.Publish(events.Event{
+			Type:     events.TypeTaskUpdated,
+			ServerID: task.ServerID,
+			OwnerID:  a.ownerOf(task.ServerID),
+			Data: map[string]any{
+				"task_id": task.ID, "kind": task.Kind,
+				"status": task.Status, "progress": task.Progress,
+				"error": task.Error,
+			},
+		})
+	}
+
+	return a
+}
+
+// ownerOf resolves who a server belongs to, for routing events.
+func (a *API) ownerOf(serverID string) string {
+	if serverID == "" || a.store == nil {
+		return ""
+	}
+	server, err := a.store.Servers.GetByID(context.Background(), serverID)
+	if err != nil {
+		return ""
+	}
+	return server.OwnerID
 }
 
 // Handler returns the API router mounted under /api/v1.
@@ -188,6 +228,11 @@ func (a *API) Handler() http.Handler {
 		"POST /api/v1/servers/{id}/power":                 a.handlePower,
 		"GET /api/v1/servers/{id}/tasks":                  a.handleListServerTasks,
 		"GET /api/v1/tasks/{id}":                          a.handleGetTask,
+		"POST /api/v1/events/ticket":                      a.handleEventsTicket,
+		"GET /api/v1/webhooks":                            a.handleListWebhooks,
+		"POST /api/v1/webhooks":                           a.handleCreateWebhook,
+		"DELETE /api/v1/webhooks/{id}":                    a.handleDeleteWebhook,
+		"POST /api/v1/webhooks/{id}/test":                 a.handleTestWebhook,
 		"GET /api/v1/servers/{id}/players":                a.handleListPlayers,
 		"POST /api/v1/servers/{id}/players/{name}/kick":   a.handleKickPlayer,
 		"POST /api/v1/servers/{id}/players/{name}/ban":    a.handleBanPlayer,
@@ -251,6 +296,8 @@ func (a *API) Handler() http.Handler {
 	// long-lived connection is not a request stream, and docs/API.md says
 	// WebSockets do not count.
 	mux.HandleFunc("GET /api/v1/servers/{id}/console", a.handleConsoleWS)
+	// The event bus authenticates with a ticket for the same reason.
+	mux.HandleFunc("GET /api/v1/events", a.handleEventsWS)
 
 	return a.logRequests(mux)
 }
@@ -267,8 +314,12 @@ func (a *API) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, healthResponse{Status: "ok", Version: Version})
 }
 
+// Events exposes the bus, so the daemon can run the webhook dispatcher on it.
+func (a *API) Events() *events.Bus { return a.events }
+
 // Shutdown releases API-owned resources. Console subscriptions belong to the
 // runner and are released by its own Shutdown.
 func (a *API) Shutdown(_ context.Context) error {
+	a.events.Close()
 	return nil
 }

@@ -38,6 +38,7 @@ type ConsoleService interface {
 	Status(ctx context.Context, id string) (runner.Status, error)
 	History(ctx context.Context, id string, lines int) ([]runner.ConsoleLine, error)
 	SubscribeWithHistory(ctx context.Context, id string, lines int) ([]runner.ConsoleLine, <-chan runner.ConsoleLine, func(), error)
+	Subscribe(ctx context.Context, id string) (<-chan runner.ConsoleLine, func(), error)
 	SubscribeStatus(ctx context.Context, id string) (<-chan runner.Status, func(), error)
 	SendCommand(ctx context.Context, id string, cmd string) error
 }

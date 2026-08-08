@@ -22,6 +22,7 @@ import (
 	"github.com/collybia/mirocraft/internal/config"
 	"github.com/collybia/mirocraft/internal/core"
 	"github.com/collybia/mirocraft/internal/daemon"
+	"github.com/collybia/mirocraft/internal/events"
 	"github.com/collybia/mirocraft/internal/java"
 	"github.com/collybia/mirocraft/internal/runner"
 	"github.com/collybia/mirocraft/internal/store"
@@ -148,6 +149,12 @@ func run() error {
 	// Scheduled backups tick rather than sleeping to the next due time, so a
 	// schedule added while the daemon runs is picked up without a restart.
 	go restAPI.RunBackupSchedules(ctx, time.Minute)
+
+	// Webhooks read the same bus the panel's event socket does, so a delivery
+	// carries exactly what a watching browser saw.
+	dispatcher := events.NewDispatcher(api.WebhookSource(db), db.Webhooks, log)
+	dispatcher.AllowPrivateHosts = cfg.Webhooks.AllowPrivateHosts
+	go dispatcher.Run(ctx, restAPI.Events())
 
 	errCh := make(chan error, 1)
 	go func() {
