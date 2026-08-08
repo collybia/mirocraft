@@ -17,7 +17,7 @@
 
 ## Фаза 1 — Ядро демона
 
-- [ ] 1.1 Хранилище: SQLite (modernc.org/sqlite), миграции, репозитории users/servers/tokens,
+- [x] 1.1 Хранилище: SQLite (modernc.org/sqlite), миграции, репозитории users/servers/tokens,
       юнит-тесты на репозитории
 - [x] 1.2 Интерфейс Runner + ProcessRunner (Linux): запуск/остановка/kill java-процесса,
       чтение stdout в кольцевой буфер + broadcast подписчикам, отправка команд в stdin,
