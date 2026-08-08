@@ -6,13 +6,13 @@
 
 ## Фаза 0 — Скелет
 
-- [ ] 0.1 Инициализация репозитория: go.mod, структура cmd/mirocraft, internal/{daemon,runner,api,store},
+- [x] 0.1 Инициализация репозитория: go.mod, структура cmd/mirocraft, internal/{daemon,runner,api,store},
       web/ (заглушка), Makefile с build/build-all/test/lint, golangci-lint конфиг, .gitignore,
       GitHub Actions: тесты + кросс-компиляция на каждый push.
-      ЧАСТИЧНО: сделаны go.mod, cmd/mirocraft, internal/{runner,api}, Makefile,
-      .golangci.yml, .gitignore, .gitattributes, CI (gofmt/vet/race/lint/кросс-сборка).
-      Осталось: internal/{daemon,store} с doc.go и заглушка web/
-- [ ] 0.2 Конфигурация и логирование: пакет internal/config (YAML + env override),
+      CI гоняет gofmt, vet, тесты с -race и сборку под linux/amd64, linux/arm64,
+      windows/amd64. Детектор гонок живёт в CI, а не в `make test`: ему нужен
+      cgo и C-компилятор, которых нет в дефолтном окружении разработчика
+- [x] 0.2 Конфигурация и логирование: пакет internal/config (YAML + env override),
       slog-настройка, флаги CLI (--config, --data-dir), graceful shutdown
 
 ## Фаза 1 — Ядро демона
