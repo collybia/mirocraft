@@ -1789,9 +1789,13 @@ components:
       type: object
       properties:
         id: { type: string }
-        email: { type: string }
+        email: { type: string, description: логин — адрес почты либо простое имя }
         role: { type: string, enum: [user, admin] }
         theme: { type: string }
+        blocked: { type: boolean }
+        max_servers: { type: integer, description: 0 — без ограничения }
+        max_ram_mb: { type: integer, description: 0 — без ограничения }
+        max_disk_mb: { type: integer, description: 0 — без ограничения }
         created_at: { type: string, format: date-time }
 
     LoginResponse:
@@ -1947,8 +1951,7 @@ components:
         server_id: { type: string }
         state: { type: string, enum: [pending, running, done, failed] }
         note: { type: string }
-        size_bytes: { type: integer }
-        error: { type: string }
+        size_bytes: { type: integer, description: заполнен только у готового }
         created_at: { type: string, format: date-time }
 
     BackupSchedule:

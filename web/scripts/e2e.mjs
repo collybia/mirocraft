@@ -215,7 +215,7 @@ try {
    * against a started server elsewhere.
    */
 
-  await page.click('button:has-text("Настройки")');
+  await page.click('button:has-text("server.properties")');
   await page.waitForTimeout(1000);
   check("the settings tab does not break without a properties file",
     (await page.locator("textarea, .card").count()) > 0);
@@ -236,6 +236,65 @@ try {
   check("a server with nothing installed says so",
     (await page.locator("text=Пока ничего не установлено").count()) > 0);
   await shoot(page, "12-catalog");
+
+  /* --- backups and options ---
+   *
+   * A server that has never started has almost nothing to archive, which is
+   * fine: what is checked is that the tab talks to the backup manager and that
+   * a schedule round-trips.
+   */
+
+  await page.click('button:has-text("Бэкапы")');
+  await page.waitForSelector("text=Расписание", { timeout: 20000 });
+  check("the backups tab opens", true);
+
+  await page.click('button:has-text("Каждые 6 часов")');
+  await page.locator("#backup-keep").fill("3");
+  await page.click('button:has-text("Сохранить расписание")');
+  await page.waitForSelector("text=Расписание сохранено", { timeout: 20000 });
+  check("a backup schedule can be saved", true);
+  await shoot(page, "13-backups");
+
+  await page.click('button:has-text("Параметры")');
+  await page.waitForSelector("#opt-ram", { timeout: 20000 });
+  await page.locator("#opt-ram").fill("1536");
+  await page.click('button:has-text("Сохранить")');
+  await page.waitForSelector("text=Сохранено", { timeout: 20000 });
+
+  await page.reload({ waitUntil: "networkidle" });
+  await page.click('button:has-text("Параметры")');
+  await page.waitForSelector("#opt-ram", { timeout: 20000 });
+  check("a server option survives a reload",
+    (await page.locator("#opt-ram").inputValue()) === "1536");
+  await shoot(page, "14-options");
+
+  /* --- administration --- */
+
+  await page.click('a:has-text("Пользователи")');
+  await page.waitForSelector("text=Новая учётная запись", { timeout: 20000 });
+  check("the admin page lists accounts", (await page.locator("text=это вы").count()) > 0);
+
+  const login = `e2e-user-${Date.now()}`;
+  await page.fill("#new-email", login);
+  await page.fill("#new-password", "a-long-enough-password");
+  await page.click('button:has-text("Создать")');
+  await page.waitForSelector(`tr:has-text("${login}")`, { timeout: 20000 });
+  check("an account can be created", true);
+
+  await page.locator("tr", { hasText: login }).first()
+    .locator('button:has-text("Заблокировать")').click();
+  await page.waitForTimeout(1000);
+  check("an account can be blocked",
+    (await page.locator("tr", { hasText: login }).first()
+      .locator("text=заблокирован").count()) > 0);
+
+  page.once("dialog", (d) => d.accept());
+  await page.locator("tr", { hasText: login }).first()
+    .locator('button:has-text("Удалить")').click();
+  await page.waitForTimeout(1200);
+  // The row, not the text: the "created" notice still carries the login.
+  check("and deleted", (await page.locator("tr", { hasText: login }).count()) === 0);
+  await shoot(page, "15-admin");
 
   check("the page produced no uncaught errors", consoleErrors.length === 0, consoleErrors.join("; "));
 
@@ -275,7 +334,7 @@ try {
   check("the docs page loads nothing from outside this daemon",
     offHost.length === 0, offHost.join(", "));
 
-  await shoot(docs, "13-api-docs");
+  await shoot(docs, "16-api-docs");
   await docs.close();
 } catch (err) {
   console.error(`FAIL unexpected error — ${err.message}`);

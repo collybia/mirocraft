@@ -436,6 +436,136 @@ export function patchSettings(id: string, values: Record<string, string>): Promi
   });
 }
 
+/* --- backups --- */
+
+export interface Backup {
+  id: string;
+  server_id: string;
+  note: string;
+  state: "pending" | "running" | "done" | "failed";
+  size_bytes: number;
+  created_at: string;
+}
+
+export interface BackupSchedule {
+  cron: string;
+  keep_last: number;
+  enabled: boolean;
+  last_run_at: string | null;
+  next_run_at: string | null;
+}
+
+export async function listBackups(id: string): Promise<Backup[]> {
+  const body = await request<ListResponse<Backup>>(`/servers/${id}/backups`);
+  return body.items;
+}
+
+export function createBackup(id: string, note?: string): Promise<{ task_id: string }> {
+  return request<{ task_id: string }>(`/servers/${id}/backups`, {
+    method: "POST",
+    body: JSON.stringify({ note: note ?? "" }),
+  });
+}
+
+export function deleteBackup(id: string, backupId: string): Promise<void> {
+  return request<void>(`/servers/${id}/backups/${backupId}`, { method: "DELETE" });
+}
+
+export function restoreBackup(id: string, backupId: string): Promise<{ task_id: string }> {
+  return request<{ task_id: string }>(`/servers/${id}/backups/${backupId}/restore`, {
+    method: "POST",
+  });
+}
+
+export function getBackupSchedule(id: string): Promise<BackupSchedule> {
+  return request<BackupSchedule>(`/servers/${id}/backups/schedule`);
+}
+
+export function putBackupSchedule(
+  id: string,
+  schedule: { cron: string; keep_last: number; enabled: boolean },
+): Promise<BackupSchedule> {
+  return request<BackupSchedule>(`/servers/${id}/backups/schedule`, {
+    method: "PUT",
+    body: JSON.stringify(schedule),
+  });
+}
+
+/** Downloads through the client for the same reason files do: the endpoint
+ *  needs an Authorization header, and a plain link cannot carry one. */
+export async function downloadBackup(id: string, backupId: string, name: string): Promise<void> {
+  const headers = new Headers();
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(`${API_BASE}/servers/${id}/backups/${backupId}/download`, {
+    headers,
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, "download_failed", "Не удалось скачать бэкап");
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+/* --- server settings --- */
+
+export function patchServer(
+  id: string,
+  patch: {
+    name?: string;
+    ram_mb?: number;
+    port?: number;
+    java_args?: string;
+    auto_start?: boolean;
+    auto_restart?: boolean;
+  },
+): Promise<Server> {
+  return request<Server>(`/servers/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+/* --- administration --- */
+
+export async function listUsers(): Promise<User[]> {
+  const body = await request<ListResponse<User>>("/admin/users");
+  return body.items;
+}
+
+export function createUser(input: {
+  email: string;
+  password: string;
+  role: "user" | "admin";
+  max_servers?: number;
+  max_ram_mb?: number;
+}): Promise<User> {
+  return request<User>("/admin/users", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function patchUser(
+  id: string,
+  patch: {
+    role?: "user" | "admin";
+    blocked?: boolean;
+    password?: string;
+    max_servers?: number;
+    max_ram_mb?: number;
+  },
+): Promise<User> {
+  return request<User>(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+export function deleteUser(id: string): Promise<void> {
+  return request<void>(`/admin/users/${id}`, { method: "DELETE" });
+}
+
 /* --- add-on catalogue --- */
 
 export interface CatalogProject {

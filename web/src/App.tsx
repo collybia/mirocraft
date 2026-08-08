@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { Layout } from "./components/Layout";
 import * as api from "./lib/api";
+import { Admin } from "./pages/Admin";
 import { Login } from "./pages/Login";
 import { ServerDetail } from "./pages/ServerDetail";
 import { Servers } from "./pages/Servers";
@@ -57,6 +58,10 @@ export function App() {
             <Route path="/" element={<Servers />} />
             <Route path="/servers/:id" element={<ServerDetail />} />
             <Route path="/settings" element={<Settings user={user} />} />
+            {/* Routed only for administrators. The API refuses these calls
+                anyway, but a page that loads and then fails on every request
+                reads as broken rather than as not-for-you. */}
+            {user.role === "admin" && <Route path="/admin" element={<Admin me={user} />} />}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>
