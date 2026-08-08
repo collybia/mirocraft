@@ -31,12 +31,24 @@ const maxPacketBytes = 1 << 20
 
 // Status is the result of a successful ping.
 type Status struct {
-	VersionName     string `json:"version_name"`
-	ProtocolVersion int    `json:"protocol_version"`
-	PlayersOnline   int    `json:"players_online"`
-	PlayersMax      int    `json:"players_max"`
-	MOTD            string `json:"motd"`
-	LatencyMs       int64  `json:"latency_ms"`
+	VersionName     string   `json:"version_name"`
+	ProtocolVersion int      `json:"protocol_version"`
+	PlayersOnline   int      `json:"players_online"`
+	PlayersMax      int      `json:"players_max"`
+	Sample          []Player `json:"sample,omitempty"`
+	MOTD            string   `json:"motd"`
+	LatencyMs       int64    `json:"latency_ms"`
+}
+
+// Player is one entry of the sample a server includes in its status.
+//
+// The sample is not the full roster: servers cap it at a dozen or so, and
+// hide-online-players suppresses it entirely. It is what the protocol offers
+// without a plugin, so the API presents it as a sample rather than pretending
+// it is the complete list.
+type Player struct {
+	Name string `json:"name"`
+	UUID string `json:"uuid,omitempty"`
 }
 
 // rawStatus mirrors the JSON a server returns.
@@ -48,6 +60,10 @@ type rawStatus struct {
 	Players struct {
 		Max    int `json:"max"`
 		Online int `json:"online"`
+		Sample []struct {
+			Name string `json:"name"`
+			ID   string `json:"id"`
+		} `json:"sample"`
 	} `json:"players"`
 	Description json.RawMessage `json:"description"`
 }
@@ -91,14 +107,18 @@ func Ping(ctx context.Context, host string, port int) (*Status, error) {
 		return nil, fmt.Errorf("decoding status: %w", err)
 	}
 
-	return &Status{
+	status := &Status{
 		VersionName:     raw.Version.Name,
 		ProtocolVersion: raw.Version.Protocol,
 		PlayersOnline:   raw.Players.Online,
 		PlayersMax:      raw.Players.Max,
 		MOTD:            decodeDescription(raw.Description),
 		LatencyMs:       latency,
-	}, nil
+	}
+	for _, p := range raw.Players.Sample {
+		status.Sample = append(status.Sample, Player{Name: p.Name, UUID: p.ID})
+	}
+	return status, nil
 }
 
 // writeHandshake sends the handshake packet with next-state 1 (status).

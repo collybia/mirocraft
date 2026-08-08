@@ -726,3 +726,101 @@ func TestReconcileLeavesManagedServersAlone(t *testing.T) {
 		t.Fatalf("status = %q, want running — this daemon does manage it", stored.Status)
 	}
 }
+
+// A handler that exists but is never registered compiles cleanly and 404s at
+// runtime — Go does not complain about an unused method. That happened to the
+// whole players and settings group, where a search-and-replace missed its
+// anchor and registered nothing at all.
+//
+// This walks every route the API is supposed to serve and checks the router
+// knows it. A 404 here means the route is missing; anything else, including
+// an authorization or validation failure, means it was reached.
+func TestEveryDocumentedRouteIsRegistered(t *testing.T) {
+	e := newTestEnv(t)
+	token := e.mintToken(e.user.ID, AllScopes)
+	e.seedGameFiles(t)
+
+	id := testServerID
+	routes := []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/health"},
+		{http.MethodGet, "/api/v1/themes"},
+		{http.MethodPost, "/api/v1/auth/login"},
+		{http.MethodPost, "/api/v1/auth/logout"},
+		{http.MethodPost, "/api/v1/auth/refresh"},
+		{http.MethodGet, "/api/v1/auth/me"},
+		{http.MethodGet, "/api/v1/auth/tokens"},
+		{http.MethodPost, "/api/v1/auth/tokens"},
+		{http.MethodDelete, "/api/v1/auth/tokens/01X"},
+		{http.MethodGet, "/api/v1/users/me"},
+		{http.MethodPatch, "/api/v1/users/me"},
+		{http.MethodGet, "/api/v1/users/me/themes"},
+		{http.MethodPost, "/api/v1/users/me/themes"},
+		{http.MethodPatch, "/api/v1/users/me/themes/01X"},
+		{http.MethodDelete, "/api/v1/users/me/themes/01X"},
+		{http.MethodGet, "/api/v1/admin/users"},
+		{http.MethodPost, "/api/v1/admin/users"},
+		{http.MethodPatch, "/api/v1/admin/users/01X"},
+		{http.MethodDelete, "/api/v1/admin/users/01X"},
+		{http.MethodGet, "/api/v1/servers"},
+		{http.MethodPost, "/api/v1/servers"},
+		{http.MethodGet, "/api/v1/servers/" + id},
+		{http.MethodPatch, "/api/v1/servers/" + id},
+		{http.MethodDelete, "/api/v1/servers/" + id},
+		{http.MethodPost, "/api/v1/servers/" + id + "/power"},
+		{http.MethodGet, "/api/v1/servers/" + id + "/tasks"},
+		{http.MethodGet, "/api/v1/tasks/01X"},
+		{http.MethodGet, "/api/v1/servers/" + id + "/console/history"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/command"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/console/ticket"},
+		{http.MethodGet, "/api/v1/servers/" + id + "/files"},
+		{http.MethodDelete, "/api/v1/servers/" + id + "/files"},
+		{http.MethodGet, "/api/v1/servers/" + id + "/files/content"},
+		{http.MethodPut, "/api/v1/servers/" + id + "/files/content"},
+		{http.MethodGet, "/api/v1/servers/" + id + "/files/download"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/files/upload"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/files/mkdir"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/files/move"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/files/copy"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/files/archive"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/files/unarchive"},
+		{http.MethodGet, "/api/v1/servers/" + id + "/backups"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/backups"},
+		{http.MethodGet, "/api/v1/servers/" + id + "/backups/schedule"},
+		{http.MethodPut, "/api/v1/servers/" + id + "/backups/schedule"},
+		{http.MethodGet, "/api/v1/servers/" + id + "/backups/01X/download"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/backups/01X/restore"},
+		{http.MethodDelete, "/api/v1/servers/" + id + "/backups/01X"},
+		{http.MethodGet, "/api/v1/servers/" + id + "/players"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/players/Notch/kick"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/players/Notch/ban"},
+		{http.MethodDelete, "/api/v1/servers/" + id + "/players/Notch/ban"},
+		{http.MethodGet, "/api/v1/servers/" + id + "/bans"},
+		{http.MethodGet, "/api/v1/servers/" + id + "/whitelist"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/whitelist"},
+		{http.MethodPatch, "/api/v1/servers/" + id + "/whitelist"},
+		{http.MethodDelete, "/api/v1/servers/" + id + "/whitelist/Notch"},
+		{http.MethodGet, "/api/v1/servers/" + id + "/ops"},
+		{http.MethodPost, "/api/v1/servers/" + id + "/ops"},
+		{http.MethodDelete, "/api/v1/servers/" + id + "/ops/Notch"},
+		{http.MethodGet, "/api/v1/servers/" + id + "/settings"},
+		{http.MethodPatch, "/api/v1/servers/" + id + "/settings"},
+	}
+
+	for _, route := range routes {
+		t.Run(route.method+" "+route.path, func(t *testing.T) {
+			resp := e.do(route.method, route.path, map[string]any{}, token)
+			defer func() { _ = resp.Body.Close() }()
+
+			if resp.StatusCode != http.StatusNotFound {
+				return
+			}
+			// A 404 from a handler that ran is fine — a missing id, say. Only
+			// the router's own "no such route" is a failure, and that one
+			// carries no JSON error body.
+			body, _ := io.ReadAll(resp.Body)
+			if !strings.Contains(string(body), `"error"`) {
+				t.Fatalf("the route is not registered (router 404, body %q)", string(body))
+			}
+		})
+	}
+}
