@@ -2,7 +2,17 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { useNavigate, useParams } from "react-router-dom";
 
 import * as api from "../lib/api";
+import { ServerFiles } from "./ServerFiles";
+import { ServerSettings } from "./ServerSettings";
 import { StatusBadge } from "./Servers";
+
+type Tab = "console" | "files" | "settings";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "console", label: "Консоль" },
+  { id: "files", label: "Файлы" },
+  { id: "settings", label: "Настройки" },
+];
 
 /** How many lines the console keeps in the DOM. */
 const MAX_RENDERED_LINES = 1000;
@@ -23,6 +33,7 @@ export function ServerDetail() {
   const [lines, setLines] = useState<Frame[]>([]);
   const [connected, setConnected] = useState(false);
   const [command, setCommand] = useState("");
+  const [tab, setTab] = useState<Tab>("console");
 
   const socketRef = useRef<WebSocket | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -235,7 +246,35 @@ export function ServerDetail() {
         </div>
       )}
 
-      <section className="card overflow-hidden">
+      <nav className="mb-4 flex gap-1 border-b border-line text-sm">
+        {TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setTab(item.id)}
+            className={
+              // -mb-px so the active tab's border sits on top of the nav's own
+              // line rather than beside it.
+              tab === item.id
+                ? "-mb-px border-b-2 border-accent px-3 py-2 text-body"
+                : "-mb-px border-b-2 border-transparent px-3 py-2 text-muted hover:text-body"
+            }
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "files" && <ServerFiles serverId={id} />}
+      {tab === "settings" && <ServerSettings serverId={id} />}
+
+      {/*
+        The console stays mounted while other tabs are shown, only hidden: it
+        holds a WebSocket and the scrollback, and unmounting would drop both,
+        so glancing at the files would silently lose the log of a server that
+        was mid-crash.
+      */}
+      <section className={`card overflow-hidden ${tab === "console" ? "" : "hidden"}`}>
         <header className="flex items-center gap-2 border-b border-line px-4 py-2 text-sm">
           <span className="text-muted">Консоль</span>
           <span className={connected ? "text-success" : "text-faint"}>

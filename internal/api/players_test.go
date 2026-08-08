@@ -455,6 +455,42 @@ func TestPatchSettings(t *testing.T) {
 	}
 }
 
+// The write must answer with the same shape as the read.
+//
+// It did not, once: the write returned only the values and a restart flag, so
+// a client that saved and re-rendered from the response lost the schema it was
+// drawing the form from, and the panel's settings page went blank the first
+// time anyone pressed save.
+func TestPatchSettingsAnswersWithTheSameShapeAsTheRead(t *testing.T) {
+	e := newTestEnv(t)
+	token := e.gameToken()
+	e.seedGameFiles(t)
+
+	read := decodeJSON[settingsResponse](t,
+		e.do(http.MethodGet, "/api/v1/servers/"+testServerID+"/settings", nil, token))
+
+	written := decodeJSON[settingsResponse](t,
+		e.do(http.MethodPatch, "/api/v1/servers/"+testServerID+"/settings",
+			patchSettingsRequest{"motd": "После записи"}, token))
+
+	if len(written.Schema) != len(read.Schema) || len(written.Schema) == 0 {
+		t.Fatalf("the write returned %d schema entries, the read %d",
+			len(written.Schema), len(read.Schema))
+	}
+	if len(written.Managed) != len(read.Managed) {
+		t.Errorf("the write returned %d managed keys, the read %d",
+			len(written.Managed), len(read.Managed))
+	}
+	if written.Values["motd"] != "После записи" {
+		t.Errorf("the write returned motd = %q", written.Values["motd"])
+	}
+	// Nothing is running in this test, so there is nothing to restart for, and
+	// saying otherwise teaches an operator to ignore the notice.
+	if written.RestartRequired {
+		t.Error("restart_required is set for a stopped server")
+	}
+}
+
 // A request with one bad value must not leave half of itself applied.
 func TestPatchSettingsIsAllOrNothing(t *testing.T) {
 	e := newTestEnv(t)

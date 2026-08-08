@@ -52,6 +52,33 @@ type settingsResponse struct {
 	Schema []gamefiles.Setting `json:"schema"`
 	// Managed keys the panel owns; the panel shows them read-only.
 	Managed map[string]string `json:"managed"`
+	// RestartRequired is set on a write when the server is running: it reads
+	// server.properties once, at startup.
+	//
+	// Always present, including on a read, where it is always false: a field
+	// that is sometimes absent and sometimes false makes every caller handle
+	// two shapes of "no".
+	RestartRequired bool `json:"restart_required"`
+}
+
+// settingsFor builds the body that both the read and the write return.
+//
+// One shape for both on purpose. The write used to answer with only the values
+// and a restart flag, so a client that saved and re-rendered lost the schema it
+// was drawing the form from — the settings page went blank the first time
+// anyone pressed save.
+func settingsFor(props *gamefiles.Properties) settingsResponse {
+	managed := make(map[string]string)
+	for _, key := range props.Keys() {
+		if reason, isManaged := gamefiles.ManagedReason(key); isManaged {
+			managed[key] = reason
+		}
+	}
+	return settingsResponse{
+		Values:  props.All(),
+		Schema:  gamefiles.Schema(),
+		Managed: managed,
+	}
 }
 
 type patchSettingsRequest map[string]string
@@ -457,18 +484,7 @@ func (a *API) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	managed := make(map[string]string)
-	for _, key := range props.Keys() {
-		if reason, isManaged := gamefiles.ManagedReason(key); isManaged {
-			managed[key] = reason
-		}
-	}
-
-	writeJSON(w, http.StatusOK, settingsResponse{
-		Values:  props.All(),
-		Schema:  gamefiles.Schema(),
-		Managed: managed,
-	})
+	writeJSON(w, http.StatusOK, settingsFor(props))
 }
 
 // handlePatchSettings serves PATCH /servers/{id}/settings.
@@ -525,16 +541,13 @@ func (a *API) handlePatchSettings(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(changed)
 	a.auditGame(r, "settings.update", strings.Join(changed, ","))
 
-	// The server reads server.properties once, at startup.
-	restartRequired := false
+	resp := settingsFor(props)
+	// The server reads server.properties once, at startup, so a change made to
+	// a running server is not in effect yet.
 	if status, err := a.serverStatus(r.Context(), server.ID); err == nil && status.IsActive() {
-		restartRequired = true
+		resp.RestartRequired = true
 	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"values":           props.All(),
-		"restart_required": restartRequired,
-	})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // auditGame records a player or settings action.

@@ -158,6 +158,69 @@ try {
   check("a custom theme can be created", true);
   await shoot(page, "08-custom-theme");
 
+  /* --- files ---
+   *
+   * A server that has never started still has eula.txt, written when it was
+   * created. That is enough: the point is that the tab talks to the sandbox,
+   * not that a world exists.
+   */
+
+  await page.goto(baseURL, { waitUntil: "networkidle" });
+  await page.click("text=e2e-test");
+  await page.waitForSelector("text=Консоль", { timeout: 20000 });
+  await page.click('button:has-text("Файлы")');
+  await page.waitForSelector('button:has-text("eula.txt")', { timeout: 20000 });
+  check("the files tab reads the server directory", true);
+
+  page.once("dialog", (d) => d.accept("plugins"));
+  await page.click('button:has-text("Новый каталог")');
+  await page.waitForSelector('button:has-text("plugins")', { timeout: 20000 });
+  check("a directory can be created", true);
+
+  await page.click('button:has-text("plugins")');
+  await page.waitForSelector('button:has-text("↑ наверх")', { timeout: 20000 });
+  check("a directory can be entered", true);
+  await page.click('button:has-text("↑ наверх")');
+  await page.waitForTimeout(300);
+
+  await page.setInputFiles('input[type="file"]', {
+    name: "notes.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("hello from e2e\n"),
+  });
+  await page.waitForSelector('button:has-text("notes.txt")', { timeout: 20000 });
+  check("a file can be uploaded", true);
+
+  await page.click('button:has-text("notes.txt")');
+  await page.waitForSelector("textarea", { timeout: 20000 });
+  check("an uploaded file opens in the editor",
+    (await page.locator("textarea").inputValue()).includes("hello from e2e"));
+
+  await page.locator("textarea").fill("edited by e2e\n");
+  await page.click('button:has-text("Сохранить")');
+  await page.waitForSelector("text=сохранён", { timeout: 20000 });
+
+  await page.click('button:has-text("notes.txt")');
+  await page.waitForSelector("textarea", { timeout: 20000 });
+  check("an edit survives a round trip",
+    (await page.locator("textarea").inputValue()).includes("edited by e2e"));
+  await page.click('button:has-text("Отмена")');
+
+  await shoot(page, "10-files");
+
+  /* --- server.properties ---
+   *
+   * A server that has never started has no server.properties, so this only
+   * asserts the page says so rather than breaking. The full editor is covered
+   * against a started server elsewhere.
+   */
+
+  await page.click('button:has-text("Настройки")');
+  await page.waitForTimeout(1000);
+  check("the settings tab does not break without a properties file",
+    (await page.locator("textarea, .card").count()) > 0);
+  await shoot(page, "11-settings");
+
   check("the page produced no uncaught errors", consoleErrors.length === 0, consoleErrors.join("; "));
 
   /* --- API documentation ---
@@ -196,7 +259,7 @@ try {
   check("the docs page loads nothing from outside this daemon",
     offHost.length === 0, offHost.join(", "));
 
-  await shoot(docs, "09-api-docs");
+  await shoot(docs, "12-api-docs");
   await docs.close();
 } catch (err) {
   console.error(`FAIL unexpected error — ${err.message}`);

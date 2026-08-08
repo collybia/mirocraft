@@ -1224,12 +1224,7 @@ paths:
           description: настройки
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items: { $ref: "#/components/schemas/Setting" }
+              schema: { $ref: "#/components/schemas/Settings" }
     patch:
       tags: [settings]
       summary: Изменить server.properties
@@ -1253,12 +1248,7 @@ paths:
           description: сохранено
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items: { $ref: "#/components/schemas/Setting" }
+              schema: { $ref: "#/components/schemas/Settings" }
         "400": { $ref: "#/components/responses/ValidationFailed" }
 
   # --- schedules ---
@@ -1737,8 +1727,9 @@ components:
       properties:
         name: { type: string }
         path: { type: string }
-        is_dir: { type: boolean }
+        type: { type: string, enum: [file, directory, symlink] }
         size: { type: integer }
+        mode: { type: string, example: "-rw-r--r--" }
         modified_at: { type: string, format: date-time }
 
     FromTo:
@@ -1789,23 +1780,47 @@ components:
         level: { type: integer, minimum: 1, maximum: 4 }
         uuid: { type: string }
 
+    Settings:
+      type: object
+      properties:
+        values:
+          type: object
+          additionalProperties: { type: string }
+          description: |
+            всё содержимое server.properties, включая ключи, которых нет в
+            схеме: файл может содержать настройки форков и плагинов, и молча
+            их прятать значит терять их при первом же сохранении
+        schema:
+          type: array
+          description: подсказки по знакомым ключам
+          items: { $ref: "#/components/schemas/Setting" }
+        managed:
+          type: object
+          additionalProperties: { type: string }
+          description: |
+            ключи, которыми панель управляет сама, и причина: менять их здесь
+            нельзя, иначе файл разошёлся бы с тем, что знает демон
+        restart_required:
+          type: boolean
+          description: |
+            после записи истинно, если сервер запущен: server.properties
+            читается один раз, при старте. При чтении всегда false — поле
+            присутствует всегда, чтобы клиенту не приходилось различать
+            «false» и «поля нет»
+
     Setting:
       type: object
       properties:
         key: { type: string, example: difficulty }
-        value: { type: string, example: hard }
-        type: { type: string, enum: [string, int, bool, enum] }
-        options:
+        kind: { type: string, enum: [string, int, bool, enum] }
+        default: { type: string }
+        min: { type: integer }
+        max: { type: integer }
+        values:
           type: array
+          description: допустимые значения для kind=enum
           items: { type: string }
-        managed:
-          type: boolean
-          description: |
-            ключ, которым панель управляет сама; менять его здесь нельзя,
-            иначе файл разошёлся бы с тем, что знает демон
-        known:
-          type: boolean
-          description: ключ есть во встроенной схеме
+        note: { type: string, description: пояснение для оператора }
 
     Action:
       type: object

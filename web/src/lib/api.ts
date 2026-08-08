@@ -284,6 +284,158 @@ export async function consoleSocket(id: string): Promise<WebSocket> {
   return new WebSocket(url);
 }
 
+/* --- files --- */
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  type: "file" | "directory" | "symlink";
+  size: number;
+  mode: string;
+  modified_at: string;
+}
+
+export async function listFiles(id: string, path = ""): Promise<FileEntry[]> {
+  const body = await request<{ path: string; items: FileEntry[] }>(
+    `/servers/${id}/files?path=${encodeURIComponent(path)}`,
+  );
+  return body.items;
+}
+
+export async function readFile(id: string, path: string): Promise<string> {
+  const body = await request<{ path: string; content: string }>(
+    `/servers/${id}/files/content?path=${encodeURIComponent(path)}`,
+  );
+  return body.content;
+}
+
+export function writeFile(id: string, path: string, content: string): Promise<void> {
+  return request<void>(`/servers/${id}/files/content?path=${encodeURIComponent(path)}`, {
+    method: "PUT",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export function deleteFile(id: string, path: string): Promise<void> {
+  return request<void>(`/servers/${id}/files?path=${encodeURIComponent(path)}`, {
+    method: "DELETE",
+  });
+}
+
+export function makeDirectory(id: string, path: string): Promise<void> {
+  return request<void>(`/servers/${id}/files/mkdir`, {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  });
+}
+
+export function movePath(id: string, from: string, to: string): Promise<void> {
+  return request<void>(`/servers/${id}/files/move`, {
+    method: "POST",
+    body: JSON.stringify({ from, to }),
+  });
+}
+
+export function unarchive(id: string, path: string, destination: string): Promise<void> {
+  return request<void>(`/servers/${id}/files/unarchive`, {
+    method: "POST",
+    body: JSON.stringify({ path, destination }),
+  });
+}
+
+/**
+ * uploadFile posts multipart form data, so it bypasses request(): that helper
+ * sets a JSON content type, and a multipart body needs the boundary the
+ * browser generates.
+ */
+export async function uploadFile(id: string, dir: string, file: File): Promise<void> {
+  const form = new FormData();
+  form.append("path", dir);
+  form.append("file", file);
+
+  const headers = new Headers({ Accept: "application/json" });
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(`${API_BASE}/servers/${id}/files/upload`, {
+    method: "POST",
+    headers,
+    body: form,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    const error = text ? (JSON.parse(text).error ?? {}) : {};
+    throw new ApiError(
+      response.status,
+      error.code ?? "internal_error",
+      error.message ?? response.statusText,
+    );
+  }
+}
+
+/**
+ * downloadFile fetches through the API client rather than pointing the browser
+ * at the URL: the download endpoint needs an Authorization header, and a plain
+ * link cannot carry one. Putting the token in the query string instead would
+ * leave it in browser history.
+ */
+export async function downloadFile(id: string, path: string): Promise<void> {
+  const headers = new Headers();
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(
+    `${API_BASE}/servers/${id}/files/download?path=${encodeURIComponent(path)}`,
+    { headers },
+  );
+  if (!response.ok) {
+    throw new ApiError(response.status, "download_failed", "Не удалось скачать файл");
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = path.split("/").pop() ?? "file";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+/* --- server.properties --- */
+
+export interface Setting {
+  key: string;
+  kind: "string" | "int" | "bool" | "enum";
+  default?: string;
+  min?: number;
+  max?: number;
+  values?: string[];
+  note?: string;
+}
+
+export interface Settings {
+  values: Record<string, string>;
+  schema: Setting[];
+  /** Keys the panel owns, mapped to why; shown read-only. */
+  managed: Record<string, string>;
+  /** Set on a save when the server is running: it reads the file at startup. */
+  restart_required?: boolean;
+}
+
+export function getSettings(id: string): Promise<Settings> {
+  return request<Settings>(`/servers/${id}/settings`);
+}
+
+export function patchSettings(id: string, values: Record<string, string>): Promise<Settings> {
+  return request<Settings>(`/servers/${id}/settings`, {
+    method: "PATCH",
+    body: JSON.stringify(values),
+  });
+}
+
 /* --- themes --- */
 
 export async function listBuiltinThemes(): Promise<BuiltinThemeInfo[]> {
