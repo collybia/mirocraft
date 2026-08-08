@@ -57,10 +57,34 @@ type Runner interface {
     Stop(ctx context.Context, id string, timeout time.Duration) error
     Kill(ctx context.Context, id string) error
     Status(ctx context.Context, id string) (Status, error)
-    Console(ctx context.Context, id string) (io.ReadCloser, error)
+
+    History(ctx context.Context, id string, lines int) ([]ConsoleLine, error)
+    Subscribe(ctx context.Context, id string) (<-chan ConsoleLine, func(), error)
+    SubscribeWithHistory(ctx context.Context, id string, lines int) ([]ConsoleLine, <-chan ConsoleLine, func(), error)
+    SubscribeStatus(ctx context.Context, id string) (<-chan Status, func(), error)
+
     SendCommand(ctx context.Context, id string, cmd string) error
+    Shutdown(ctx context.Context) error
 }
 ```
+
+Консольная часть заменила первоначальный `Console(ctx, id) (io.ReadCloser, error)`:
+один ReadCloser не обслуживает нескольких зрителей сразу, а WebSocket-консоль
+это требует. Поэтому доступ разделён на историю и подписку.
+
+**Модель консоли.** У каждого запущенного сервера есть Hub: кольцевой буфер
+на 1000 строк плюс две шины рассылки (строки и смены статуса). stdout и stderr
+читаются построчно, каждая строка — `ConsoleLine{TS, Stream, Text}`.
+
+Рассылка идёт по **drop policy**: у подписчика буфер на 256 строк, и если он не
+успевает читать, он теряет строки, а не блокирует публикацию. Это принципиально:
+блокирующая рассылка означала бы, что один залипший веб-сокет останавливает
+чтение пайпа, а через него — и сам сервер, когда его pipe-буфер заполнится.
+Догоняться отставший клиент должен через историю.
+
+`SubscribeWithHistory` делает снимок буфера и подписку под одним мьютексом.
+Иначе строка, опубликованная между этими двумя шагами, теряется — а на нагруженном
+сервере это ровно та строка, ради которой оператор и открыл консоль.
 
 - **DockerRunner**: контейнер на сервер, образ itzg/minecraft-server или свой минимальный
   образ с Java. Лимиты через Docker API. Тома — директория сервера.

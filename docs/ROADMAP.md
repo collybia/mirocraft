@@ -8,7 +8,10 @@
 
 - [ ] 0.1 Инициализация репозитория: go.mod, структура cmd/mirocraft, internal/{daemon,runner,api,store},
       web/ (заглушка), Makefile с build/build-all/test/lint, golangci-lint конфиг, .gitignore,
-      GitHub Actions: тесты + кросс-компиляция на каждый push
+      GitHub Actions: тесты + кросс-компиляция на каждый push.
+      ЧАСТИЧНО: сделаны go.mod, cmd/mirocraft, internal/{runner,api}, Makefile,
+      .golangci.yml, .gitignore, .gitattributes, CI (gofmt/vet/race/lint/кросс-сборка).
+      Осталось: internal/{daemon,store} с doc.go и заглушка web/
 - [ ] 0.2 Конфигурация и логирование: пакет internal/config (YAML + env override),
       slog-настройка, флаги CLI (--config, --data-dir), graceful shutdown
 
@@ -16,7 +19,7 @@
 
 - [ ] 1.1 Хранилище: SQLite (modernc.org/sqlite), миграции, репозитории users/servers/tokens,
       юнит-тесты на репозитории
-- [ ] 1.2 Интерфейс Runner + ProcessRunner (Linux): запуск/остановка/kill java-процесса,
+- [x] 1.2 Интерфейс Runner + ProcessRunner (Linux): запуск/остановка/kill java-процесса,
       чтение stdout в кольцевой буфер + broadcast подписчикам, отправка команд в stdin,
       корректная остановка через команду `stop` с таймаутом и fallback на kill
 - [ ] 1.3 Реестр CoreProvider + первые провайдеры: Vanilla (Mojang manifest) и Paper
@@ -30,10 +33,14 @@
 ## Фаза 2 — API
 
 - [ ] 2.1 Каркас API: роутер, middleware (auth, logging, rate limit), эндпоинты
-      /auth/login, /users (admin), выдача и отзыв токенов
+      /auth/login, /users (admin), выдача и отзыв токенов.
+      ЧАСТИЧНО: вместе с 2.3 уже сделаны роутер, Bearer-аутентификация, scope и
+      проверка владения сервером, формат ошибок, /health. Осталось: /auth/login,
+      /auth/tokens, /users, rate limit, logging-middleware и замена временного
+      in-memory хранилища (api.MemoryAuth) на SQLite-стор из 1.1
 - [ ] 2.2 Эндпоинты серверов: CRUD, start/stop/restart/kill, статус с метриками
       (RAM, uptime, игроки через query-протокол)
-- [ ] 2.3 WebSocket консоли: стрим логов + отправка команд, история последних 500 строк
+- [x] 2.3 WebSocket консоли: стрим логов + отправка команд, история последних 500 строк
 - [ ] 2.4 Файловый API: список/чтение/запись/загрузка/удаление в пределах директории
       сервера, защита от path traversal, лимит размера, тесты на traversal — обязательны
 - [ ] 2.5 Бэкапы: создать/список/восстановить/скачать, расписание
