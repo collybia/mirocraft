@@ -55,10 +55,15 @@ func TestCreateServer(t *testing.T) {
 
 	// The directory and eula.txt must exist: recording the flag in the
 	// database alone would not satisfy the server itself on first start.
-	if _, err := os.Stat(stored.Dir); err != nil {
+	dir := e.api.serverDir(stored)
+	if _, err := os.Stat(dir); err != nil {
 		t.Errorf("the server directory was not created: %v", err)
 	}
-	eula, err := os.ReadFile(filepath.Join(stored.Dir, "eula.txt"))
+	// Stored relative, so moving the data directory does not orphan it.
+	if filepath.IsAbs(stored.Dir) {
+		t.Errorf("the stored directory is absolute (%q); it must be relative to the data directory", stored.Dir)
+	}
+	eula, err := os.ReadFile(filepath.Join(dir, "eula.txt"))
 	if err != nil {
 		t.Fatalf("eula.txt was not written: %v", err)
 	}
@@ -383,6 +388,7 @@ func TestDeleteServerRemovesRecordAndFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the stored server: %v", err)
 	}
+	dir := e.api.serverDir(stored)
 
 	resp := e.do(http.MethodDelete,
 		"/api/v1/servers/"+server.ID+"?confirm="+server.Name, nil, token)
@@ -394,7 +400,7 @@ func TestDeleteServerRemovesRecordAndFiles(t *testing.T) {
 	if _, err := e.db.Servers.GetByID(t.Context(), server.ID); err == nil {
 		t.Error("the server record still exists")
 	}
-	if _, err := os.Stat(stored.Dir); !os.IsNotExist(err) {
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Errorf("the server directory still exists: %v", err)
 	}
 }

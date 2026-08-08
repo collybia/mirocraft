@@ -62,8 +62,11 @@ type Launch struct {
 // It is safe to call before every start: the core jar and the Java runtime
 // are both cached, so a server that is already provisioned only pays for a
 // checksum check.
-func (p *Provisioner) Prepare(ctx context.Context, srv *store.Server) (*Launch, error) {
-	if srv.Dir == "" {
+// dir is passed in rather than read from the record: where a server's files
+// live is decided by the current data directory, not by whatever absolute
+// path happened to be stored when the server was created.
+func (p *Provisioner) Prepare(ctx context.Context, srv *store.Server, dir string) (*Launch, error) {
+	if dir == "" {
 		return nil, errors.New("server has no directory")
 	}
 
@@ -77,7 +80,7 @@ func (p *Provisioner) Prepare(ctx context.Context, srv *store.Server) (*Launch, 
 		return nil, fmt.Errorf("resolving %s %s: %w", srv.Core, srv.Version, err)
 	}
 
-	jarPath := filepath.Join(srv.Dir, ServerJarName)
+	jarPath := filepath.Join(dir, ServerJarName)
 	if err := p.ensureJar(ctx, build, jarPath); err != nil {
 		return nil, err
 	}

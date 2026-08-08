@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/collybia/mirocraft/internal/mcping"
 	"github.com/collybia/mirocraft/internal/runner"
 	"github.com/collybia/mirocraft/internal/store"
 )
@@ -96,7 +98,8 @@ func newTestEnv(t *testing.T) *testEnv {
 	pr.Build = func(*runner.Server) (string, []string, error) { return self, nil, nil }
 	pr.Env = append(os.Environ(), fakeServerEnv+"=1")
 
-	db, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "api.db"))
+	dataDir := t.TempDir()
+	db, err := store.Open(context.Background(), filepath.Join(dataDir, "api.db"))
 	if err != nil {
 		t.Fatalf("opening store: %v", err)
 	}
@@ -105,11 +108,17 @@ func newTestEnv(t *testing.T) *testEnv {
 		Store:     db,
 		Console:   pr,
 		Lifecycle: pr,
-		DataDir:   t.TempDir(),
+		DataDir:   dataDir,
 		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		// httptest sends no Origin header, so the default same-origin check
 		// would reject the upgrade in tests.
 		CheckOrigin: func(*http.Request) bool { return true },
+		// Nothing in the suite speaks the Minecraft protocol, and the host
+		// may well have a real server on the same port, so the ping is stubbed
+		// out rather than left to find whatever is listening.
+		Ping: func(context.Context, string, int) (*mcping.Status, error) {
+			return nil, errors.New("no server is listening in tests")
+		},
 	})
 
 	srv := httptest.NewServer(a.Handler())
@@ -150,18 +159,32 @@ func (e *testEnv) seed() {
 	e.token = e.mintToken(e.user.ID, []string{ScopeServersRead, ScopeServersConsole})
 	e.adminToken = e.mintToken(e.admin.ID, AllScopes)
 
+	// Dir is stored relative, the way the API now writes it, so the fixture
+	// exercises the same derivation production uses.
 	e.serverRecord = &store.Server{
 		ID: testServerID, OwnerID: e.user.ID, Name: "owned", Core: "paper",
-		Version: "1.21.4", RAMMb: 1024, Port: 25565, Dir: e.t.TempDir(),
+		Version: "1.21.4", RAMMb: 1024, Port: 25565,
+		Dir: "servers/" + testServerID,
 	}
 	if err := e.db.Servers.Create(ctx, e.serverRecord); err != nil {
 		e.t.Fatalf("creating server record: %v", err)
 	}
+	// The record alone is not enough: a server has a directory on disk, and
+	// starting one chdirs into it.
+	for _, s := range []*store.Server{e.serverRecord} {
+		if err := os.MkdirAll(e.api.serverDir(s), 0o750); err != nil {
+			e.t.Fatalf("creating the server directory: %v", err)
+		}
+	}
 	if err := e.db.Servers.Create(ctx, &store.Server{
 		ID: otherServerID, OwnerID: e.other.ID, Name: "foreign", Core: "paper",
-		Version: "1.21.4", RAMMb: 1024, Port: 25566, Dir: e.t.TempDir(),
+		Version: "1.21.4", RAMMb: 1024, Port: 25566,
+		Dir: "servers/" + otherServerID,
 	}); err != nil {
 		e.t.Fatalf("creating other server record: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(e.api.dataDir, "servers", otherServerID), 0o750); err != nil {
+		e.t.Fatalf("creating the other server directory: %v", err)
 	}
 }
 

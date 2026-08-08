@@ -4,15 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/collybia/mirocraft/internal/mcping"
 	"github.com/collybia/mirocraft/internal/store"
 )
 
@@ -575,4 +578,91 @@ func TestCommandAcceptsCyrillic(t *testing.T) {
 			t.Fatal("timed out waiting for the echoed command")
 		}
 	}
+}
+
+// The server directory used to be stored as an absolute path fixed at
+// creation time, so moving the data directory — relocating it, restoring a
+// backup on another host, changing --data-dir — left every server pointing at
+// somewhere that no longer existed. Found by copying a live data directory
+// and watching the file listing return four of twenty-three entries.
+func TestServersSurviveMovingTheDataDirectory(t *testing.T) {
+	e := newTestEnv(t)
+	token := e.filesToken()
+	e.seedFiles(t)
+
+	// Confirm the file API works where the data currently lives.
+	before := e.do(http.MethodGet,
+		"/api/v1/servers/"+testServerID+"/files?path=/", nil, token)
+	if before.StatusCode != http.StatusOK {
+		t.Fatalf("listing before the move gave %d", before.StatusCode)
+	}
+	countBefore := len(decodeJSON[listFilesResponse](t, before).Items)
+	if countBefore == 0 {
+		t.Fatal("the fixture has no files to speak of")
+	}
+
+	// Move the whole data directory, exactly as an operator would.
+	moved := t.TempDir()
+	if err := copyDirForTest(e.api.dataDir, moved); err != nil {
+		t.Fatalf("copying the data directory: %v", err)
+	}
+
+	relocated := New(Options{
+		Store:   e.db,
+		Console: e.runner,
+		DataDir: moved,
+		Logger:  e.api.log,
+		Ping: func(context.Context, string, int) (*mcping.Status, error) {
+			return nil, errors.New("no server is listening in tests")
+		},
+	})
+	server := httptest.NewServer(relocated.Handler())
+	t.Cleanup(server.Close)
+
+	req, err := http.NewRequest(http.MethodGet,
+		server.URL+"/api/v1/servers/"+testServerID+"/files?path=/", nil)
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("listing after the move gave %d, want 200 — the server was orphaned",
+			resp.StatusCode)
+	}
+	if got := len(decodeJSON[listFilesResponse](t, resp).Items); got != countBefore {
+		t.Fatalf("listing after the move has %d entries, before it had %d", got, countBefore)
+	}
+}
+
+// copyDirForTest duplicates a directory tree.
+func copyDirForTest(from, to string) error {
+	return filepath.Walk(from, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(from, p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(to, rel)
+
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o750)
+		}
+		body, err := os.ReadFile(p)
+		if err != nil {
+			// The open database file may be locked; the server directories
+			// are what this test is about.
+			return nil
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
+			return err
+		}
+		return os.WriteFile(target, body, 0o640)
+	})
 }
