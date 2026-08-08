@@ -37,6 +37,13 @@ test:
 test-race:
 	CGO_ENABLED=1 go test -race ./...
 
+# Checks the core providers against the real Mojang and PaperMC APIs, jar
+# download included. Slow and network-dependent, so it is not part of `test`,
+# but run it before a release: upstream changes its API without asking, and
+# fixtures cannot notice.
+test-live:
+	go test -tags live -run TestLive -v ./internal/core/
+
 lint:
 	golangci-lint run
 
