@@ -102,9 +102,11 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 
 	a := New(Options{
-		Store:   db,
-		Console: pr,
-		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Store:     db,
+		Console:   pr,
+		Lifecycle: pr,
+		DataDir:   t.TempDir(),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		// httptest sends no Origin header, so the default same-origin check
 		// would reject the upgrade in tests.
 		CheckOrigin: func(*http.Request) bool { return true },

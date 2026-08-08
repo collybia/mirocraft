@@ -11,14 +11,32 @@ import (
 	"github.com/temertika/mirocraft/internal/store"
 )
 
-// DefaultSessionTTL is how long a token from a web login stays valid.
-const DefaultSessionTTL = 24 * time.Hour
+// Defaults applied when Options leaves a field zero.
+const (
+	// DefaultSessionTTL is how long a token from a web login stays valid.
+	DefaultSessionTTL = 24 * time.Hour
+	// DefaultPortFrom and DefaultPortTo bound automatic port assignment,
+	// starting at the vanilla default port.
+	DefaultPortFrom = 25565
+	DefaultPortTo   = 25665
+	// DefaultStopTimeout is how long a graceful stop may take.
+	DefaultStopTimeout = 60 * time.Second
+)
 
 // Options configures an API instance.
 type Options struct {
-	Store   *store.Store
-	Console ConsoleService
-	Logger  *slog.Logger
+	Store     *store.Store
+	Console   ConsoleService
+	Lifecycle Lifecycle
+	Logger    *slog.Logger
+
+	// DataDir is where server directories are created.
+	DataDir string
+	// PortFrom and PortTo bound automatic port assignment.
+	PortFrom int
+	PortTo   int
+	// StopTimeout is the default graceful-stop budget for power actions.
+	StopTimeout time.Duration
 
 	// TicketTTL overrides the console ticket lifetime. Zero uses TicketTTL.
 	TicketTTL time.Duration
@@ -39,9 +57,16 @@ type Options struct {
 
 // API holds the HTTP handlers and their dependencies.
 type API struct {
-	store   *store.Store
-	console ConsoleService
-	tickets *TicketStore
+	store     *store.Store
+	console   ConsoleService
+	lifecycle Lifecycle
+	tickets   *TicketStore
+	tasks     *taskRegistry
+
+	dataDir     string
+	portFrom    int
+	portTo      int
+	stopTimeout time.Duration
 
 	upgrader   websocket.Upgrader
 	log        *slog.Logger
@@ -79,10 +104,29 @@ func New(opts Options) *API {
 		upgrader.CheckOrigin = opts.CheckOrigin
 	}
 
+	dataDir := opts.DataDir
+	if dataDir == "" {
+		dataDir = "./data"
+	}
+	portFrom, portTo := opts.PortFrom, opts.PortTo
+	if portFrom <= 0 || portTo < portFrom {
+		portFrom, portTo = DefaultPortFrom, DefaultPortTo
+	}
+	stopTimeout := opts.StopTimeout
+	if stopTimeout <= 0 {
+		stopTimeout = DefaultStopTimeout
+	}
+
 	return &API{
 		store:        opts.Store,
 		console:      opts.Console,
+		lifecycle:    opts.Lifecycle,
 		tickets:      NewTicketStore(opts.TicketTTL),
+		tasks:        newTaskRegistry(),
+		dataDir:      dataDir,
+		portFrom:     portFrom,
+		portTo:       portTo,
+		stopTimeout:  stopTimeout,
 		upgrader:     upgrader,
 		log:          log,
 		sessionTTL:   sessionTTL,
@@ -120,6 +164,14 @@ func (a *API) Handler() http.Handler {
 		"POST /api/v1/users/me/themes":             a.handleCreateCustomTheme,
 		"PATCH /api/v1/users/me/themes/{tid}":      a.handlePatchCustomTheme,
 		"DELETE /api/v1/users/me/themes/{tid}":     a.handleDeleteCustomTheme,
+		"GET /api/v1/servers":                      a.handleListServers,
+		"POST /api/v1/servers":                     a.handleCreateServer,
+		"GET /api/v1/servers/{id}":                 a.handleGetServer,
+		"PATCH /api/v1/servers/{id}":               a.handlePatchServer,
+		"DELETE /api/v1/servers/{id}":              a.handleDeleteServer,
+		"POST /api/v1/servers/{id}/power":          a.handlePower,
+		"GET /api/v1/servers/{id}/tasks":           a.handleListServerTasks,
+		"GET /api/v1/tasks/{id}":                   a.handleGetTask,
 		"GET /api/v1/servers/{id}/console/history": a.handleConsoleHistory,
 		"POST /api/v1/servers/{id}/command":        a.handleCommand,
 		"POST /api/v1/servers/{id}/console/ticket": a.handleConsoleTicket,

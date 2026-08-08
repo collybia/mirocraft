@@ -102,10 +102,13 @@ func run() error {
 	}
 
 	restAPI := api.New(api.Options{
-		Store:     db,
-		Console:   processRunner,
-		Logger:    log,
-		TicketTTL: cfg.Console.TicketTTL,
+		Store:       db,
+		Console:     processRunner,
+		Lifecycle:   processRunner,
+		Logger:      log,
+		DataDir:     cfg.DataDir,
+		TicketTTL:   cfg.Console.TicketTTL,
+		StopTimeout: cfg.Runner.StopTimeout,
 	})
 
 	srv := &http.Server{

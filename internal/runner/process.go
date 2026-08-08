@@ -91,8 +91,9 @@ type process struct {
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
 
-	mu     sync.Mutex
-	status Status
+	mu        sync.Mutex
+	status    Status
+	startedAt time.Time
 	// stopping records that a stop was requested, so a clean exit is reported
 	// as stopped rather than crashed.
 	stopping bool
@@ -110,7 +111,7 @@ func (r *ProcessRunner) Start(ctx context.Context, srv *Server) error {
 	}
 
 	r.mu.Lock()
-	if existing, ok := r.procs[srv.ID]; ok && existing.currentStatus().isActive() {
+	if existing, ok := r.procs[srv.ID]; ok && existing.currentStatus().IsActive() {
 		r.mu.Unlock()
 		return ErrAlreadyRunning
 	}
@@ -161,6 +162,10 @@ func (r *ProcessRunner) Start(ctx context.Context, srv *Server) error {
 		close(p.exited)
 		return fmt.Errorf("starting server %s: %w", srv.ID, err)
 	}
+
+	p.mu.Lock()
+	p.startedAt = time.Now().UTC()
+	p.mu.Unlock()
 
 	p.wg.Add(2)
 	go p.capture(stdout, StreamStdout)
@@ -235,10 +240,6 @@ func (p *process) wasStopping() bool {
 	return p.stopping
 }
 
-func (s Status) isActive() bool {
-	return s == StatusStarting || s == StatusRunning || s == StatusStopping
-}
-
 // lookup returns the supervised process for id.
 func (r *ProcessRunner) lookup(id string) (*process, error) {
 	r.mu.Lock()
@@ -258,7 +259,7 @@ func (r *ProcessRunner) Stop(ctx context.Context, id string, timeout time.Durati
 	if err != nil {
 		return err
 	}
-	if !p.currentStatus().isActive() {
+	if !p.currentStatus().IsActive() {
 		return ErrNotRunning
 	}
 
@@ -372,7 +373,7 @@ func (r *ProcessRunner) SendCommand(ctx context.Context, id string, cmd string) 
 	if err != nil {
 		return err
 	}
-	if !p.currentStatus().isActive() {
+	if !p.currentStatus().IsActive() {
 		return ErrNotRunning
 	}
 

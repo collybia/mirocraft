@@ -292,7 +292,7 @@ func TestProcessRunnerStopFallsBackToKill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading status: %v", err)
 	}
-	if status.isActive() {
+	if status.IsActive() {
 		t.Fatalf("status after forced stop = %q, want a terminal state", status)
 	}
 }

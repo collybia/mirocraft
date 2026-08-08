@@ -16,6 +16,12 @@ import (
 // docs/API.md.
 type Status string
 
+// IsActive reports whether the status means a process is alive: starting,
+// running or on its way down.
+func (s Status) IsActive() bool {
+	return s == StatusStarting || s == StatusRunning || s == StatusStopping
+}
+
 const (
 	StatusCreating Status = "creating"
 	StatusStopped  Status = "stopped"
