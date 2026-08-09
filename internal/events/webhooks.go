@@ -261,7 +261,7 @@ func (d *Dispatcher) checkURL(raw string) error {
 	if err != nil {
 		// A name that does not resolve is not a security problem; the request
 		// will simply fail and be recorded.
-		return nil
+		return nil //nolint:nilerr // an unresolvable name is not a rejection reason
 	}
 	for _, ip := range ips {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {

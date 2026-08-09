@@ -19,7 +19,8 @@ const TokenPrefix = "mcr_"
 // TokenRepo stores API and session tokens. Only hashes are persisted.
 type TokenRepo struct{ db *sql.DB }
 
-const tokenColumns = `id, user_id, name, hash, scopes, kind, expires_at, last_used_at, created_at`
+// tokenColumns is the column list, not a secret; only hashes are ever stored.
+const tokenColumns = `id, user_id, name, hash, scopes, kind, expires_at, last_used_at, created_at` // #nosec G101 -- a column list
 
 // GenerateToken returns a new random token value and its storage hash. The
 // value is shown to the user exactly once and never stored.

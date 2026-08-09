@@ -172,7 +172,8 @@ func Load(path string) (Config, error) {
 	cfg := Default()
 
 	if path != "" {
-		raw, err := os.ReadFile(path)
+		// The path is what the operator passed on the command line.
+		raw, err := os.ReadFile(path) // #nosec G304 -- the operator's own configuration file
 		if err != nil {
 			return Config{}, fmt.Errorf("reading config %s: %w", path, err)
 		}

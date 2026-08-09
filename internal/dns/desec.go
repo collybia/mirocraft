@@ -60,10 +60,16 @@ func NewDeSEC(cfg Config, httpClient *http.Client) (*DeSEC, error) {
 	}, nil
 }
 
-func (d *DeSEC) ID() string   { return "desec" }
+// ID returns the identifier this provider is configured under.
+func (d *DeSEC) ID() string { return "desec" }
+
+// Name returns the name shown in the panel.
 func (d *DeSEC) Name() string { return "deSEC" }
+
+// Zone returns the domain records are created under.
 func (d *DeSEC) Zone() string { return d.domain }
 
+// Capabilities reports what this provider can and cannot do.
 func (d *DeSEC) Capabilities() Capabilities {
 	return Capabilities{SRV: true, DNS01: true, Subdomains: true, MinTTL: DeSECMinTTL}
 }

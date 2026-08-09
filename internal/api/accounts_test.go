@@ -14,7 +14,7 @@ import (
 func TestLogin(t *testing.T) {
 	e := newTestEnv(t)
 
-	resp := e.do(http.MethodPost, "/api/v1/auth/login",
+	resp := e.do(http.MethodPost, "/api/v1/auth/login", //nolint:bodyclose // do registers the close with t.Cleanup
 		loginRequest{Email: e.user.Email, Password: testPassword}, "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -47,9 +47,9 @@ func TestLogin(t *testing.T) {
 func TestLoginFailuresAreIndistinguishable(t *testing.T) {
 	e := newTestEnv(t)
 
-	unknown := e.do(http.MethodPost, "/api/v1/auth/login",
+	unknown := e.do(http.MethodPost, "/api/v1/auth/login", //nolint:bodyclose // do registers the close with t.Cleanup
 		loginRequest{Email: "nobody@example.com", Password: testPassword}, "")
-	wrongPassword := e.do(http.MethodPost, "/api/v1/auth/login",
+	wrongPassword := e.do(http.MethodPost, "/api/v1/auth/login", //nolint:bodyclose // do registers the close with t.Cleanup
 		loginRequest{Email: e.user.Email, Password: "not the password"}, "")
 
 	if unknown.StatusCode != http.StatusUnauthorized {

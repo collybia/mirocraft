@@ -107,13 +107,13 @@ func TestLoadPartialYAMLKeepsDefaults(t *testing.T) {
 
 // A misspelled key must fail loudly instead of silently doing nothing.
 func TestLoadRejectsUnknownKeys(t *testing.T) {
-	path := writeConfig(t, "adress: \":1234\"\n")
+	path := writeConfig(t, "adress: \":1234\"\n") //nolint:misspell // the typo is the input under test
 
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("Load accepted an unknown key")
 	}
-	if !strings.Contains(err.Error(), "adress") {
+	if !strings.Contains(err.Error(), "adress") { //nolint:misspell // matching the typo above
 		t.Fatalf("error %q does not name the offending key", err)
 	}
 }

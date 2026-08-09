@@ -93,7 +93,12 @@ func (m *Manager) Ensure(ctx context.Context, major int) (*Runtime, error) {
 	}
 
 	lock, _ := m.installs.LoadOrStore(major, &sync.Mutex{})
-	mutex := lock.(*sync.Mutex)
+	mutex, ok := lock.(*sync.Mutex)
+	if !ok {
+		// Nothing else stores into this map, so a different type here would
+		// mean the map was corrupted rather than that the input was odd.
+		return nil, fmt.Errorf("java: the install lock for %d is not a mutex", major)
+	}
 	mutex.Lock()
 	defer mutex.Unlock()
 
@@ -303,7 +308,7 @@ func (m *Manager) latestAsset(ctx context.Context, major int, platform Platform)
 
 	asset := assets[0]
 	if asset.Binary.Package.Link == "" {
-		return nil, fmt.Errorf("Adoptium returned no download for java %d", major)
+		return nil, fmt.Errorf("no download offered by Adoptium for java %d", major)
 	}
 	return &asset, nil
 }
@@ -380,7 +385,7 @@ func runVersion(ctx context.Context, bin string) error {
 	cmd := exec.CommandContext(ctx, bin, "-version")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%w: %s -version failed: %v (%s)",
+		return fmt.Errorf("%w: %s -version failed: %w (%s)",
 			ErrNotExecutable, bin, err, strings.TrimSpace(string(out)))
 	}
 	return nil

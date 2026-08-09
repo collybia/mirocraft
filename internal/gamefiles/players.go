@@ -136,7 +136,8 @@ func LoadBans(dir string) ([]Ban, error) {
 // never started has none of them, and an empty whitelist is exactly what that
 // means.
 func readJSONList(path string, target any) error {
-	body, err := os.ReadFile(path)
+	// The path is a fixed file name under a server directory the caller owns.
+	body, err := os.ReadFile(path) // #nosec G304 -- a known file in the server's directory
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil

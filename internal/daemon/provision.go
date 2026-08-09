@@ -146,7 +146,8 @@ func (p *Provisioner) ensureJar(ctx context.Context, build *core.Build, jarPath 
 // so an interrupted copy cannot leave a truncated jar that the next start
 // would try to run.
 func copyFile(src, dst string) error {
-	in, err := os.Open(src)
+	// Both paths are built by the provisioner from a server's own directory.
+	in, err := os.Open(src) // #nosec G304 -- a path the provisioner constructed
 	if err != nil {
 		return err
 	}

@@ -193,8 +193,12 @@ func (c *Client) Search(ctx context.Context, opts SearchOptions) (*SearchResult,
 
 	key := "search:" + query.Encode()
 	if cached, ok := c.cache.get(key); ok {
-		result := cached.(*SearchResult)
-		return result, nil
+		// The cache is keyed by a prefix this method owns, so nothing else
+		// can have stored another type under it; a mismatch would be a bug
+		// here rather than bad input, and the zero value would hide it.
+		if result, ok := cached.(*SearchResult); ok {
+			return result, nil
+		}
 	}
 
 	var raw struct {
@@ -237,7 +241,9 @@ func (c *Client) Search(ctx context.Context, opts SearchOptions) (*SearchResult,
 func (c *Client) Project(ctx context.Context, idOrSlug string) (*Project, error) {
 	key := "project:" + idOrSlug
 	if cached, ok := c.cache.get(key); ok {
-		return cached.(*Project), nil
+		if project, ok := cached.(*Project); ok {
+			return project, nil
+		}
 	}
 
 	var raw struct {
@@ -286,7 +292,9 @@ func (c *Client) Versions(ctx context.Context, projectID, loader, gameVersion st
 
 	key := "versions:" + projectID + ":" + query.Encode()
 	if cached, ok := c.cache.get(key); ok {
-		return cached.([]Version), nil
+		if versions, ok := cached.([]Version); ok {
+			return versions, nil
+		}
 	}
 
 	var raw []versionPayload
@@ -307,7 +315,9 @@ func (c *Client) Versions(ctx context.Context, projectID, loader, gameVersion st
 func (c *Client) VersionByID(ctx context.Context, versionID string) (*Version, error) {
 	key := "version:" + versionID
 	if cached, ok := c.cache.get(key); ok {
-		return cached.(*Version), nil
+		if version, ok := cached.(*Version); ok {
+			return version, nil
+		}
 	}
 
 	var raw versionPayload

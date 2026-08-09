@@ -80,8 +80,8 @@ func newFakeUpstream(t *testing.T) *fakeUpstream {
 }
 
 func (f *fakeUpstream) client() *Client {
-	c := New(f.Server.Client())
-	c.BaseURL = f.Server.URL
+	c := New(f.Client())
+	c.BaseURL = f.URL
 	return c
 }
 

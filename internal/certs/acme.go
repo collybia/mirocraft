@@ -122,7 +122,7 @@ func (m *Manager) finalize(ctx context.Context, client *acme.Client, order *acme
 
 	settled, waitErr := client.WaitOrder(ctx, order.URI)
 	if waitErr != nil {
-		return nil, fmt.Errorf("certs: collecting the certificate: %w (and the order did not settle: %v)",
+		return nil, fmt.Errorf("certs: collecting the certificate: %w (and the order did not settle: %w)",
 			firstErr, waitErr)
 	}
 	if settled.CertURL == "" {
@@ -332,7 +332,8 @@ func (m *Manager) acmeClient(ctx context.Context) (*acme.Client, error) {
 func (m *Manager) accountKey() (*ecdsa.PrivateKey, error) {
 	path := filepath.Join(m.cfg.Dir, "acme-account.key")
 
-	if data, err := os.ReadFile(path); err == nil {
+	// The directory comes from the configuration and the file name is fixed.
+	if data, err := os.ReadFile(path); err == nil { // #nosec G304 -- a fixed name under the configured directory
 		block, _ := pem.Decode(data)
 		if block != nil {
 			parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)

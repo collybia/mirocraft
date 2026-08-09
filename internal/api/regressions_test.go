@@ -658,7 +658,7 @@ func copyDirForTest(from, to string) error {
 		if err != nil {
 			// The open database file may be locked; the server directories
 			// are what this test is about.
-			return nil
+			return nil //nolint:nilerr // an unreadable file is skipped on purpose
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 			return err

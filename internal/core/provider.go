@@ -18,6 +18,7 @@ import (
 // Kind decides a server's default port, protocol and console behaviour.
 type Kind string
 
+// The kinds of software the panel installs.
 const (
 	KindServer  Kind = "server"
 	KindProxy   Kind = "proxy"
@@ -27,6 +28,7 @@ const (
 // Runtime is what has to be installed for the software to run.
 type Runtime string
 
+// The runtimes a core can need.
 const (
 	RuntimeJava   Runtime = "java"
 	RuntimePHP    Runtime = "php"

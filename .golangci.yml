@@ -3,6 +3,12 @@ version: "2"
 run:
   timeout: 5m
 
+issues:
+  # Report everything. The defaults cap each linter at three findings and hide
+  # the rest, which turns one run into several and makes a clean run ambiguous.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
 linters:
   enable:
     - errcheck
@@ -30,14 +36,32 @@ linters:
       excludes:
         # G104 duplicates errcheck.
         - G104
+        # G302 and G306 demand 0600 on everything written. This project writes
+        # 0640 files and 0750 directories on purpose: the daemon's group has to
+        # read a server's files, and a certificate is public by definition.
+        # The one file where the mode is the whole point — the TLS private key
+        # — has its own test in internal/certs rather than a linter rule that
+        # would have to be silenced everywhere else.
+        - G302
+        - G306
+        # G115 flags every narrowing conversion, including the ones that are
+        # masked or bounded a line earlier. The two places where the bound
+        # actually mattered — the port and the packet length in the Minecraft
+        # ping — now check it and return an error; what is left is noise that
+        # would be silenced site by site with no reader served.
+        - G115
 
   exclusions:
     rules:
       # Tests may skip error checks on setup helpers and use weak randomness.
+      # bodyclose too: the request helper in internal/api registers the close
+      # with t.Cleanup, which the analysis cannot follow, so every call that
+      # checks only a status code is reported.
       - path: _test\.go
         linters:
           - errcheck
           - gosec
+          - bodyclose
 
 formatters:
   enable:

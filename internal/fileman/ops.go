@@ -167,7 +167,9 @@ func (r *Root) ReadText(rel string) (string, error) {
 			ErrTooLarge, rel, info.Size(), MaxTextBytes)
 	}
 
-	body, err := os.ReadFile(abs)
+	// abs comes from Root.Resolve, this package's guard against leaving the
+	// server's directory; escaping it is what fileman's tests are about.
+	body, err := os.ReadFile(abs) // #nosec G304 -- confined by Root.Resolve
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", rel, err)
 	}
@@ -210,7 +212,9 @@ func (r *Root) Open(rel string) (*os.File, os.FileInfo, error) {
 		return nil, nil, fmt.Errorf("%w: %s", ErrIsADirectory, rel)
 	}
 
-	file, err := os.Open(abs)
+	// abs comes from Root.Resolve, this package's guard against leaving the
+	// server's directory; escaping it is what fileman's tests are about.
+	file, err := os.Open(abs) // #nosec G304 -- confined by Root.Resolve
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening %s: %w", rel, err)
 	}
@@ -362,7 +366,8 @@ func (r *Root) Archive(paths []string, destRel string) (string, error) {
 		return "", fmt.Errorf("creating the parent of %s: %w", destRel, err)
 	}
 
-	file, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
+	// dest comes from Root.Resolve, like every other path here.
+	file, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640) // #nosec G304 -- confined by Root.Resolve
 	if err != nil {
 		return "", fmt.Errorf("creating %s: %w", destRel, err)
 	}
@@ -416,7 +421,10 @@ func (r *Root) Archive(paths []string, destRel string) (string, error) {
 			if err != nil {
 				return err
 			}
-			src, err := os.Open(p)
+			// A path produced by walking a directory Root.Resolve returned, and
+			// symlinks are skipped a few lines above, so the walk cannot be
+			// led out of the root between the stat and this open.
+			src, err := os.Open(p) // #nosec G304,G122 -- inside the confined root, symlinks skipped
 			if err != nil {
 				return err
 			}
@@ -517,7 +525,8 @@ func (r *Root) unzip(archive, destPrefix string) error {
 }
 
 func (r *Root) untar(archive, destPrefix string) error {
-	file, err := os.Open(archive)
+	// archive was resolved by the caller.
+	file, err := os.Open(archive) // #nosec G304 -- confined by Root.Resolve
 	if err != nil {
 		return fmt.Errorf("opening the archive: %w", err)
 	}
@@ -534,7 +543,7 @@ func (r *Root) untar(archive, destPrefix string) error {
 
 	for {
 		header, err := reader.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {
@@ -636,7 +645,8 @@ func writeAtomicCounted(target string, src io.Reader) (int64, error) {
 }
 
 func copyOneFile(from, to string) error {
-	src, err := os.Open(from)
+	// Both ends were resolved before this is reached.
+	src, err := os.Open(from) // #nosec G304 -- confined by Root.Resolve
 	if err != nil {
 		return fmt.Errorf("opening %s: %w", from, err)
 	}

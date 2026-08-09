@@ -514,7 +514,10 @@ func (a *API) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if dir := a.serverDir(server); dir != "" {
-		if err := os.RemoveAll(dir); err != nil {
+		// The path is the data directory joined with the server's own id, or
+		// an absolute directory recorded when the server was created; neither
+		// is taken from this request.
+		if err := os.RemoveAll(dir); err != nil { // #nosec G703 -- the server's own directory
 			a.log.Warn("removing the server directory failed",
 				slog.String("dir", dir), slog.String("error", err.Error()))
 		}

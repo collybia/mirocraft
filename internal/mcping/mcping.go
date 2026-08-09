@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"strconv"
 	"time"
@@ -123,6 +124,13 @@ func Ping(ctx context.Context, host string, port int) (*Status, error) {
 
 // writeHandshake sends the handshake packet with next-state 1 (status).
 func writeHandshake(w io.Writer, host string, port int) error {
+	// The protocol carries the port in sixteen bits. Callers validate it, but
+	// a value that does not fit would otherwise be truncated into a different
+	// port and produce a confusing failure somewhere else.
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("port %d is outside 1-65535", port)
+	}
+
 	var body []byte
 	body = appendVarInt(body, -1) // protocol version: -1 means "undefined"
 	body = appendString(body, host)
@@ -141,6 +149,9 @@ func writePacket(w io.Writer, id int32, body []byte) error {
 	packet = appendVarInt(packet, id)
 	packet = append(packet, body...)
 
+	if len(packet) > math.MaxInt32 {
+		return fmt.Errorf("packet of %d bytes is too large to frame", len(packet))
+	}
 	var framed []byte
 	framed = appendVarInt(framed, int32(len(packet)))
 	framed = append(framed, packet...)

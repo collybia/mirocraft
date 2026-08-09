@@ -78,7 +78,9 @@ func (r *ServerRepo) List(ctx context.Context, f ServerFilter) ([]*Server, error
 		args = append(args, f.Core)
 	}
 	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
+		// The joined fragments are literals from the block above; every value
+		// they compare against is bound as a parameter.
+		query += " WHERE " + strings.Join(where, " AND ") // #nosec G202 -- fixed fragments, bound values
 	}
 
 	limit := f.Limit

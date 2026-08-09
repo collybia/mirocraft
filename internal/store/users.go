@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"testing"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -13,7 +14,19 @@ import (
 
 // bcryptCost is the work factor for password hashing. The default is a
 // deliberate trade-off; raising it slows logins for everyone.
-const bcryptCost = bcrypt.DefaultCost
+//
+// Test binaries use the minimum instead. A single hash at the default cost
+// costs about a second under the race detector, and the suite hashes on
+// nearly every test — enough to push the API package past the CI timeout on
+// its own. The decision is taken from testing.Testing() rather than from a
+// settable variable so that nothing outside a test binary can lower it: a
+// knob for weakening password hashing is a knob someone eventually turns.
+var bcryptCost = func() int {
+	if testing.Testing() {
+		return bcrypt.MinCost
+	}
+	return bcrypt.DefaultCost
+}()
 
 // ErrBadPassword is returned when a password does not match the stored hash.
 var ErrBadPassword = errors.New("password does not match")

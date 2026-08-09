@@ -64,10 +64,16 @@ func NewDuckDNS(cfg Config, httpClient *http.Client) (*DuckDNS, error) {
 	return &DuckDNS{name: name, token: cfg.Token, BaseURL: DuckDNSBaseURL, HTTP: httpClient}, nil
 }
 
-func (d *DuckDNS) ID() string   { return "duckdns" }
+// ID returns the identifier this provider is configured under.
+func (d *DuckDNS) ID() string { return "duckdns" }
+
+// Name returns the name shown in the panel.
 func (d *DuckDNS) Name() string { return "DuckDNS" }
+
+// Zone returns the domain records are created under.
 func (d *DuckDNS) Zone() string { return d.name + DuckDNSSuffix }
 
+// Capabilities reports what this provider can and cannot do.
 func (d *DuckDNS) Capabilities() Capabilities {
 	// No TTL of its own to report: DuckDNS does not let one be chosen.
 	//

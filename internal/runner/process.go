@@ -171,7 +171,10 @@ func (r *ProcessRunner) Start(ctx context.Context, srv *Server) error {
 		return fmt.Errorf("resolving launch paths for server %s: %w", srv.ID, err)
 	}
 
-	cmd := exec.Command(name, args...)
+	// Launching a named program with arguments is what a server runner does;
+	// the name is resolved above and the arguments come from the core's own
+	// build step, not from a request.
+	cmd := exec.Command(name, args...) // #nosec G204 -- running the server is the purpose
 	cmd.Dir = dir
 	cmd.Env = r.Env
 

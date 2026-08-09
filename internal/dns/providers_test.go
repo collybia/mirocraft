@@ -63,11 +63,11 @@ func (s *deSECStub) provider(t *testing.T, cfg Config) *DeSEC {
 		cfg.Token = "secret-token"
 	}
 
-	provider, err := NewDeSEC(cfg, s.Server.Client())
+	provider, err := NewDeSEC(cfg, s.Client())
 	if err != nil {
 		t.Fatalf("building the provider: %v", err)
 	}
-	provider.BaseURL = s.Server.URL
+	provider.BaseURL = s.URL
 	return provider
 }
 
@@ -210,11 +210,11 @@ func newDuckStub(t *testing.T, body string) *duckStub {
 
 func (s *duckStub) provider(t *testing.T) *DuckDNS {
 	t.Helper()
-	provider, err := NewDuckDNS(Config{Zone: "myname", Token: "duck-token"}, s.Server.Client())
+	provider, err := NewDuckDNS(Config{Zone: "myname", Token: "duck-token"}, s.Client())
 	if err != nil {
 		t.Fatalf("building the provider: %v", err)
 	}
-	provider.BaseURL = s.Server.URL
+	provider.BaseURL = s.URL
 	return provider
 }
 
@@ -360,11 +360,11 @@ func newCFStub(t *testing.T) *cfStub {
 
 func (s *cfStub) provider(t *testing.T) *Cloudflare {
 	t.Helper()
-	provider, err := NewCloudflare(Config{Zone: "example.com", Token: "cf-token"}, s.Server.Client())
+	provider, err := NewCloudflare(Config{Zone: "example.com", Token: "cf-token"}, s.Client())
 	if err != nil {
 		t.Fatalf("building the provider: %v", err)
 	}
-	provider.BaseURL = s.Server.URL
+	provider.BaseURL = s.URL
 	return provider
 }
 

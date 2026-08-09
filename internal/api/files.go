@@ -229,7 +229,7 @@ func (a *API) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	// cannot fill the disk with temporary files while being read.
 	r.Body = http.MaxBytesReader(w, r.Body, fileman.MaxUploadBytes+multipartMemory)
 
-	if err := r.ParseMultipartForm(multipartMemory); err != nil {
+	if err := r.ParseMultipartForm(multipartMemory); err != nil { // #nosec G120 -- capped by MaxBytesReader above
 		writeError(w, http.StatusBadRequest, CodeValidationFailed,
 			"the request must be multipart with a file field")
 		return

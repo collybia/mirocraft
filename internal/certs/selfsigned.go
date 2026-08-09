@@ -17,6 +17,12 @@ import (
 	"time"
 )
 
+// The names the generated pair is stored under.
+const (
+	selfSignedCertName = "self-signed.crt"
+	selfSignedKeyName  = "self-signed.key"
+)
+
 // SelfSignedValidity is how long a generated certificate lasts.
 //
 // A year, and renewed a month before that: long enough that an operator who
@@ -30,8 +36,8 @@ const SelfSignedValidity = 365 * 24 * time.Hour
 // trust this exception, or an operator who checked the fingerprint, should not
 // have to do it again every time the daemon restarts.
 func (m *Manager) selfSigned() (*tls.Certificate, error) {
-	certPath := filepath.Join(m.cfg.Dir, "self-signed.crt")
-	keyPath := filepath.Join(m.cfg.Dir, "self-signed.key")
+	certPath := filepath.Join(m.cfg.Dir, selfSignedCertName)
+	keyPath := filepath.Join(m.cfg.Dir, selfSignedKeyName)
 
 	if cert, err := loadPair(certPath, keyPath); err == nil {
 		if time.Until(cert.Leaf.NotAfter) > renewBefore(cert.Leaf.NotBefore, cert.Leaf.NotAfter) {

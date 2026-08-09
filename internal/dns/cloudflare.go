@@ -62,10 +62,16 @@ func NewCloudflare(cfg Config, httpClient *http.Client) (*Cloudflare, error) {
 	}, nil
 }
 
-func (c *Cloudflare) ID() string   { return "cloudflare" }
+// ID returns the identifier this provider is configured under.
+func (c *Cloudflare) ID() string { return "cloudflare" }
+
+// Name returns the name shown in the panel.
 func (c *Cloudflare) Name() string { return "Cloudflare" }
+
+// Zone returns the domain records are created under.
 func (c *Cloudflare) Zone() string { return c.zone }
 
+// Capabilities reports what this provider can and cannot do.
 func (c *Cloudflare) Capabilities() Capabilities {
 	return Capabilities{SRV: true, DNS01: true, Subdomains: true, MinTTL: CloudflareMinTTL}
 }

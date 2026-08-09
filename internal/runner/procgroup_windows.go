@@ -77,9 +77,11 @@ func (j *windowsJob) attach(cmd *exec.Cmd) error {
 			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 		},
 	}
+	// The Win32 call takes a pointer and a size; there is no way to express
+	// it without unsafe.
 	_, err = windows.SetInformationJobObject(handle,
 		windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits)))
+		uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))) // #nosec G103 -- required by the Win32 signature
 	if err != nil {
 		_ = windows.CloseHandle(handle)
 		return fmt.Errorf("configuring the job object: %w", err)

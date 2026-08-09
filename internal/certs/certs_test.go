@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -111,7 +112,7 @@ func TestSelfSignedIsUsable(t *testing.T) {
 	}
 
 	// Both files on disk, and the key not readable by the world.
-	for _, name := range []string{"self-signed.crt", "self-signed.key"} {
+	for _, name := range []string{selfSignedCertName, selfSignedKeyName} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("%s was not written: %v", name, err)
 		}
@@ -136,6 +137,32 @@ func TestSelfSignedIsReusedAcrossRestarts(t *testing.T) {
 
 	if !second.Status().NotAfter.Equal(firstSerial) {
 		t.Fatal("the certificate was regenerated on restart")
+	}
+}
+
+// The private key must not be readable by anyone else on the host. This is
+// asserted here rather than left to the linter: the project writes 0640 files
+// on purpose, so the mode checks are switched off in .golangci.yml, and the
+// one file where the mode is the whole point needs its own guard.
+func TestSelfSignedKeyIsNotReadableByOthers(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// Windows reports a synthesised mode; the real protection there is
+		// the ACL the installer sets on the configuration directory.
+		t.Skip("file modes are not meaningful on Windows")
+	}
+
+	dir := t.TempDir()
+	m := newManager(t, Config{Mode: ModeSelfSigned, Domain: "panel.example.com", Dir: dir}, nil)
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(dir, selfSignedKeyName))
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if mode := info.Mode().Perm(); mode&0o077 != 0 {
+		t.Errorf("key mode = %#o, want no group or world bits", mode)
 	}
 }
 

@@ -134,7 +134,11 @@ func (m *Manager) Create(ctx context.Context, serverID, backupID, serverDir stri
 			return nil
 		}
 
-		src, err := os.Open(p)
+		// Walking a directory this manager was given; the path is not
+		// assembled from a request.
+		// Symlinks are skipped a few lines above, so the walk cannot be led
+		// out of the tree between the stat and this open.
+		src, err := os.Open(p) // #nosec G304,G122 -- a walk path, symlinks already skipped
 		if err != nil {
 			// A running server rewrites files as it goes and holds some open;
 			// one unreadable file is not worth losing the whole backup for.
@@ -262,7 +266,8 @@ func (m *Manager) Delete(serverID, backupID string) error {
 func (m *Manager) Open(serverID, backupID string) (*os.File, os.FileInfo, error) {
 	p := m.Path(serverID, backupID)
 
-	file, err := os.Open(p)
+	// Path sanitises both ids before joining them.
+	file, err := os.Open(p) // #nosec G304 -- built by Path from sanitised ids
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil, ErrNotFound
@@ -350,7 +355,9 @@ func safeJoin(dir, name string) (string, error) {
 }
 
 func writeFile(target string, src io.Reader) error {
-	file, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	// target comes from safeTarget above, which refuses anything that leaves
+	// the destination directory.
+	file, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640) // #nosec G304 -- checked by safeTarget
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", target, err)
 	}

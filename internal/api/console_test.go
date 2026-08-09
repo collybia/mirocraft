@@ -256,6 +256,12 @@ func (e *testEnv) do(method, path string, body any, token string) *http.Response
 	if err != nil {
 		e.t.Fatalf("performing request: %v", err)
 	}
+	// Closed here rather than by every caller. A test that checks only the
+	// status code has no reason to think about the body, and one that fails
+	// its assertion never reaches a deferred close it wrote itself — which is
+	// how a suite ends up leaking connections on exactly the runs where it is
+	// already misbehaving. Closing twice is harmless.
+	e.t.Cleanup(func() { _ = resp.Body.Close() })
 	return resp
 }
 

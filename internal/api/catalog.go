@@ -2,7 +2,7 @@ package api
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // Modrinth publishes sha1 digests; verifying against them is the point
 	"crypto/sha512"
 	"encoding/hex"
 	"errors"
@@ -316,7 +316,8 @@ func (a *API) downloadAddon(ctx context.Context, file catalog.PlannedFile, targe
 	tempName := temp.Name()
 	defer func() {
 		_ = temp.Close()
-		_ = os.Remove(tempName)
+		// The name comes from os.CreateTemp, not from the request.
+		_ = os.Remove(tempName) // #nosec G703 -- a name this function just created
 	}()
 
 	var digest hash.Hash
@@ -324,7 +325,7 @@ func (a *API) downloadAddon(ctx context.Context, file catalog.PlannedFile, targe
 	case file.SHA512 != "":
 		digest = sha512.New()
 	case file.SHA1 != "":
-		digest = sha1.New()
+		digest = sha1.New() //nolint:gosec // matching the digest the index published
 	}
 
 	writer := io.Writer(temp)
@@ -353,7 +354,9 @@ func (a *API) downloadAddon(ctx context.Context, file catalog.PlannedFile, targe
 	if err := temp.Close(); err != nil {
 		return fmt.Errorf("closing %s: %w", file.FileName, err)
 	}
-	if err := os.Rename(tempName, target); err != nil {
+	// tempName is this function's own temporary file and target was built and
+	// checked by the caller.
+	if err := os.Rename(tempName, target); err != nil { // #nosec G703 -- both paths are constructed here
 		return fmt.Errorf("installing %s: %w", file.FileName, err)
 	}
 	return nil

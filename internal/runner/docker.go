@@ -262,11 +262,14 @@ func (r *DockerRunner) Start(ctx context.Context, srv *Server) error {
 	c.startedAt = time.Now().UTC()
 	c.mu.Unlock()
 
+	// Both goroutines follow the container, not the request that started it:
+	// a console reader cancelled when the HTTP handler returns would stop
+	// reading the moment the server came up.
 	c.wg.Add(1)
-	go r.capture(c)
+	go r.capture(c) // #nosec G118 -- outlives the request on purpose
 
 	c.setStatus(StatusRunning)
-	go r.reap(c)
+	go r.reap(c) // #nosec G118 -- outlives the request on purpose
 
 	return nil
 }
@@ -567,7 +570,10 @@ func (r *DockerRunner) Stats(ctx context.Context, id string) (Stats, error) {
 
 	sample, err := r.client.ContainerStats(ctx, c.containerID)
 	if err != nil {
-		return stats, nil
+		// Statistics are a nicety: a container that stopped between the check
+		// above and this call should leave the panel showing a server without
+		// numbers, not a server with an error.
+		return stats, nil //nolint:nilerr // missing statistics are not a failure
 	}
 	stats.RAMBytes = sample.MemoryBytes
 	stats.CPUPercent = sample.CPUPercent
@@ -633,8 +639,8 @@ func (r *DockerRunner) Adopt(ctx context.Context) error {
 		r.mu.Unlock()
 
 		c.wg.Add(1)
-		go r.capture(c)
-		go r.reap(c)
+		go r.capture(c) // #nosec G118 -- follows the container, not the caller
+		go r.reap(c)    // #nosec G118 -- follows the container, not the caller
 
 		r.log.Info("adopted a running server container",
 			slog.String("server_id", serverID), slog.String("container", info.ID[:12]))

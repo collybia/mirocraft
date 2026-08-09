@@ -2,7 +2,7 @@ package core
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // upstream publishes sha1 digests; verifying against them is the point
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -239,7 +239,8 @@ func checksumFile(path, algorithm string) (string, error) {
 		return "", nil
 	}
 
-	file, err := os.Open(path)
+	// The file this function just downloaded, to hash it.
+	file, err := os.Open(path) // #nosec G304 -- the download's own temporary file
 	if err != nil {
 		return "", fmt.Errorf("opening %s: %w", path, err)
 	}

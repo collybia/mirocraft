@@ -34,8 +34,12 @@ jobs:
       # The console fan-out, the ring buffer and the WebSocket pumps are all
       # concurrent, so the race detector is the point of this job. It needs cgo,
       # which is why it runs here rather than in the cross-compilation job.
+      #
+      # The timeout is a guard against a hang, not a performance budget: a
+      # runner under load is several times slower than a laptop, and a limit
+      # tight enough to be a budget fails on load instead of on a hang.
       - name: Test with race detector
-        run: CGO_ENABLED=1 go test -race -timeout 5m ./...
+        run: CGO_ENABLED=1 go test -race -timeout 15m ./...
 
   web:
     name: Web panel
@@ -81,7 +85,10 @@ jobs:
           # quietly downloading a different toolchain mid-job.
           go-version-file: go.mod
           check-latest: true
-      - uses: golangci/golangci-lint-action@v6
+      # v8 is what installs golangci-lint v2, which is the format .golangci.yml
+      # is written in. v6 installs the 1.x line, which refuses this go.mod
+      # outright — it is built against an older Go than the one targeted here.
+      - uses: golangci/golangci-lint-action@v8
         with:
           version: latest
 

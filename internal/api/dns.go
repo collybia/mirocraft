@@ -70,18 +70,6 @@ func (a *API) handleDNSStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// serverAddress is what players type to join.
-type serverAddress struct {
-	// Host is the name or address to connect to.
-	Host string `json:"host"`
-	// Port is what players must add when the name alone is not enough.
-	Port int `json:"port"`
-	// NeedsPort reports whether players have to type the port. True whenever
-	// there is no SRV record — on DuckDNS always, and everywhere for a server
-	// on the default port where SRV is unnecessary anyway.
-	NeedsPort bool `json:"needs_port"`
-}
-
 // serverSub is the name a server is published under.
 //
 // Derived from the server's name rather than its id: "survival.example.com"
@@ -174,21 +162,5 @@ func (a *API) unpublishServerDNS(ctx context.Context, server *store.Server) {
 		// is listening, which is more confusing than no record at all.
 		a.log.Warn("removing the server's DNS records failed",
 			slog.String("server_id", server.ID), slog.String("error", err.Error()))
-	}
-}
-
-// AddressFor reports how players reach a server.
-func (a *API) addressFor(ctx context.Context, server *store.Server) serverAddress {
-	if a.dns == nil {
-		return serverAddress{Port: server.Port, NeedsPort: true}
-	}
-
-	sub := a.serverSub(ctx, server)
-	// Without SRV the name resolves to the host and nothing carries the port,
-	// so players must type it.
-	return serverAddress{
-		Host:      dns.FQDN(sub, a.dns.Zone()),
-		Port:      server.Port,
-		NeedsPort: !a.dns.Capabilities().SRV,
 	}
 }

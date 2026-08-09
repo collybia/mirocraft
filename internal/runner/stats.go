@@ -51,7 +51,10 @@ func (r *ProcessRunner) Stats(ctx context.Context, id string) (Stats, error) {
 
 	proc, err := gopsprocess.NewProcessWithContext(ctx, int32(stats.PID))
 	if err != nil {
-		return stats, nil
+		// The process can exit between the status check above and this lookup.
+		// That leaves the panel showing a server without numbers, which is
+		// what it should show, rather than an error.
+		return stats, nil //nolint:nilerr // missing statistics are not a failure
 	}
 	if mem, err := proc.MemoryInfoWithContext(ctx); err == nil && mem != nil {
 		stats.RAMBytes = mem.RSS

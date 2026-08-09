@@ -22,6 +22,7 @@ func (s Status) IsActive() bool {
 	return s == StatusStarting || s == StatusRunning || s == StatusStopping
 }
 
+// The lifecycle states a server moves through.
 const (
 	StatusCreating Status = "creating"
 	StatusStopped  Status = "stopped"

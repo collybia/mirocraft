@@ -56,14 +56,21 @@ func NewPaper(client *http.Client) *Paper {
 	}
 }
 
-func (p *Paper) ID() string   { return p.Project }
+// ID returns the identifier the API and the database use for this core.
+func (p *Paper) ID() string { return p.Project }
+
+// Name returns the name shown in the panel.
 func (p *Paper) Name() string { return p.DisplayName }
+
+// Kind reports whether this core is a server, a proxy or a Bedrock server.
 func (p *Paper) Kind() Kind {
 	if p.ServerKind == "" {
 		return KindServer
 	}
 	return p.ServerKind
 }
+
+// Runtime reports what has to be installed to run this core.
 func (p *Paper) Runtime() Runtime { return RuntimeJava }
 
 // Content reports where this project's add-ons go.

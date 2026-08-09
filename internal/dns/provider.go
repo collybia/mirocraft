@@ -146,9 +146,7 @@ func ValidateTXTSub(sub string) error {
 		return nil
 	}
 	for _, label := range strings.Split(sub, ".") {
-		if strings.HasPrefix(label, "_") {
-			label = label[1:]
-		}
+		label = strings.TrimPrefix(label, "_")
 		if !subPattern.MatchString(strings.ToLower(label)) || label != strings.ToLower(label) {
 			return fmt.Errorf("dns: %q is not a valid record label", label)
 		}

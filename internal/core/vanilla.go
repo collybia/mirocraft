@@ -40,9 +40,16 @@ func NewVanilla(client *http.Client) *Vanilla {
 	}
 }
 
-func (v *Vanilla) ID() string       { return "vanilla" }
-func (v *Vanilla) Name() string     { return "Vanilla" }
-func (v *Vanilla) Kind() Kind       { return KindServer }
+// ID returns the identifier the API and the database use for this core.
+func (v *Vanilla) ID() string { return "vanilla" }
+
+// Name returns the name shown in the panel.
+func (v *Vanilla) Name() string { return "Vanilla" }
+
+// Kind reports that this core is a server rather than a proxy.
+func (v *Vanilla) Kind() Kind { return KindServer }
+
+// Runtime reports what has to be installed to run this core.
 func (v *Vanilla) Runtime() Runtime { return RuntimeJava }
 
 // Content is empty: a vanilla server has no plugin or mod loader.

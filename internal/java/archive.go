@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -69,7 +70,8 @@ func safeJoin(dir, name string) (string, error) {
 }
 
 func extractTarGz(archive, dir string) error {
-	file, err := os.Open(archive)
+	// The archive this package downloaded from Adoptium.
+	file, err := os.Open(archive) // #nosec G304 -- the runtime download
 	if err != nil {
 		return fmt.Errorf("opening %s: %w", archive, err)
 	}
@@ -86,7 +88,7 @@ func extractTarGz(archive, dir string) error {
 
 	for {
 		header, err := reader.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {
@@ -189,7 +191,8 @@ func writeFile(target string, src io.Reader, mode os.FileMode, size int64) error
 	// and group is granted.
 	perm := mode.Perm() & 0o750
 
-	file, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	// target is checked against the destination by the caller before this.
+	file, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm) // #nosec G304 -- checked against the destination
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", target, err)
 	}

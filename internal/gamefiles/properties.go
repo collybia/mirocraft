@@ -155,7 +155,8 @@ func ParseProperties(r io.Reader) (*Properties, error) {
 
 // LoadProperties reads the file from a server directory.
 func LoadProperties(dir string) (*Properties, error) {
-	file, err := os.Open(filepath.Join(dir, PropertiesName))
+	// A fixed file name under a server directory the caller owns.
+	file, err := os.Open(filepath.Join(dir, PropertiesName)) // #nosec G304 -- a known name in the server's directory
 	if err != nil {
 		if os.IsNotExist(err) {
 			// A server that has never started has no properties file yet.
