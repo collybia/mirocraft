@@ -5,7 +5,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 
 export CGO_ENABLED := 0
 
-.PHONY: build build-all test test-race lint fmt tidy clean dev web web-test e2e
+.PHONY: build build-all test test-race test-linux test-live lint fmt tidy clean dev web web-test e2e
 
 # The Go binary embeds web/dist, so a release build makes the panel first.
 web:
@@ -36,6 +36,15 @@ test:
 # reason it must run somewhere.
 test-race:
 	CGO_ENABLED=1 go test -race ./...
+
+# Runs the suite the way CI does: on Linux, with the race detector. Worth a
+# target of its own because the differences are real and silent from a Windows
+# machine — a backslash is a path separator on one host and an ordinary
+# character in a filename on the other, and a process killed on Linux lingers
+# as a zombie until something reaps it. Both of those shipped red builds
+# before this existed. Needs Docker.
+test-linux:
+	docker run --rm -v "$(CURDIR)":/src -w /src -e CGO_ENABLED=1 golang:1.26 go test -race -timeout 15m -count=1 ./...
 
 # Checks the core providers against the real Mojang and PaperMC APIs, jar
 # download included. Slow and network-dependent, so it is not part of `test`,

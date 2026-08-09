@@ -24,11 +24,19 @@ import (
 func TestPathsCannotEscape(t *testing.T) {
 	dir := t.TempDir()
 
+	// The backslash cases are the ones that must not vary by host: on Windows
+	// it is a separator, on Linux an ordinary character in a filename, and a
+	// check that answers differently on each is a check that only holds where
+	// it was written.
 	for _, name := range []string{
 		"../outside.jar",
 		"mods/../../outside.jar",
 		"/etc/cron.d/x",
 		`..\outside.jar`,
+		`mods\..\..\outside.jar`,
+		`C:\evil.jar`,
+		"C:/evil.jar",
+		`\\server\share\evil.jar`,
 		"",
 		"   ",
 	} {

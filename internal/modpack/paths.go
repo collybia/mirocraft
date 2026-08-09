@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -16,22 +17,32 @@ import (
 // names in the archive and the "path" of each file in the index. A pack naming
 // ../../etc/cron.d/x would otherwise be installed exactly there, as the user
 // the daemon runs as.
+//
+// The rules do not vary by host. A backslash is a separator on Windows and an
+// ordinary character in a filename on Linux, so `..\evil.jar` is an escape on
+// one and a strange but legal name on the other — which would mean the same
+// pack installing two different ways, and this check passing or failing
+// depending on where the panel happens to run. It is a separator everywhere
+// here, and refused everywhere.
 func SafePath(dir, name string) (string, error) {
 	if strings.TrimSpace(name) == "" {
 		return "", fmt.Errorf("%w: a file with no path", ErrNotAPack)
 	}
 
-	clean := filepath.Clean(filepath.FromSlash(name))
-	if filepath.IsAbs(clean) || strings.HasPrefix(clean, string(filepath.Separator)) {
+	// Slash form throughout, so the analysis is the same on every platform;
+	// only the final join is host-shaped.
+	slashed := strings.ReplaceAll(name, `\`, "/")
+	clean := path.Clean(slashed)
+	if strings.HasPrefix(clean, "/") || filepath.IsAbs(clean) || volumeName(name) != "" {
 		return "", fmt.Errorf("%w: %q is an absolute path", ErrDisallowed, name)
 	}
-	for _, part := range strings.Split(filepath.ToSlash(clean), "/") {
+	for _, part := range strings.Split(clean, "/") {
 		if part == ".." {
 			return "", fmt.Errorf("%w: %q escapes the server directory", ErrDisallowed, name)
 		}
 	}
 
-	target := filepath.Join(dir, clean)
+	target := filepath.Join(dir, filepath.FromSlash(clean))
 	rel, err := filepath.Rel(dir, target)
 	if err != nil {
 		return "", fmt.Errorf("resolving %q: %w", name, err)
@@ -40,6 +51,22 @@ func SafePath(dir, name string) (string, error) {
 		return "", fmt.Errorf("%w: %q escapes the server directory", ErrDisallowed, name)
 	}
 	return target, nil
+}
+
+// volumeName reports a Windows drive prefix, on every platform.
+//
+// filepath.VolumeName answers "" on Linux, so a pack naming "C:/evil.jar"
+// would be installed there as a directory called "C:" — and on a Windows host
+// as the root of the C drive. Neither is what the pack asked for, and the
+// answer should not depend on which one is running.
+func volumeName(name string) string {
+	if len(name) < 2 || name[1] != ':' {
+		return ""
+	}
+	if letter := name[0]; (letter >= 'a' && letter <= 'z') || (letter >= 'A' && letter <= 'Z') {
+		return name[:2]
+	}
+	return ""
 }
 
 // extractOverride writes one file from the archive into the server directory.

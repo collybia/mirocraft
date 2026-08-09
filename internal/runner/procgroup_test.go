@@ -158,12 +158,41 @@ func waitForHistoryLine(t *testing.T, r *ProcessRunner, serverID, needle string)
 // realistic outcome, and the alternative — matching on start time as well —
 // would add a platform-specific comparison to a test whose subject is exactly
 // the platform difference being hidden.
+// pidAlive reports whether a process is still running, counting a zombie as
+// gone.
+//
+// A zombie is a process that has already died and whose exit status nobody has
+// collected: its entry in /proc outlives it. Killing the whole group kills the
+// child's parent too, so there is nobody left to reap it until init gets
+// round to it — and on a machine where init is slow about that, or is a
+// container's PID 1 that does not reap at all, "the entry still exists" would
+// read as "the kill did not work". It did; that is what a zombie means.
 func pidAlive(t *testing.T, pid int) bool {
 	t.Helper()
 
-	running, err := psutil.PidExists(int32(pid))
+	exists, err := psutil.PidExists(int32(pid))
 	if err != nil {
 		t.Fatalf("checking pid %d: %v", pid, err)
 	}
-	return running
+	if !exists {
+		return false
+	}
+
+	proc, err := psutil.NewProcess(int32(pid))
+	if err != nil {
+		// Gone between the two calls, which is the answer.
+		return false
+	}
+	statuses, err := proc.Status()
+	if err != nil {
+		// Windows reports no status this way and has no zombies: there the
+		// entry existing is the whole answer.
+		return true
+	}
+	for _, status := range statuses {
+		if status == psutil.Zombie {
+			return false
+		}
+	}
+	return true
 }
