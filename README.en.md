@@ -1,5 +1,9 @@
 # Mirocraft
 
+[![CI](https://github.com/collybia/mirocraft/actions/workflows/ci.yml/badge.svg)](https://github.com/collybia/mirocraft/actions/workflows/ci.yml)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)](go.mod)
+
 **A Minecraft server control panel you host yourself.** Like Aternos, except the server
 is yours: no queue to start it, no ads, no "your server went to sleep because nobody was
 playing".
@@ -7,7 +11,7 @@ playing".
 One binary is the daemon, the REST API and the web panel at once. No nginx, no MySQL, no
 Redis, no separate agent on every machine.
 
-[Русский](README.md)
+[Русский](README.md) · [Documentation](https://collybia.github.io/mirocraft/)
 
 ---
 
@@ -110,6 +114,17 @@ one.
 
 ---
 
+## Would rather not run a VPS
+
+Everything above is about hosting it yourself. If renting and minding a server
+is not what you want, [**MiroHost**](https://mirohost.tech) runs Mirocraft for
+you: the panel is already up, the domain and the certificate are configured.
+
+It changes nothing about the panel — it is the code in this repository — and you
+can move to your own server whenever you like by copying the data directory.
+
+---
+
 ## Requirements
 
 - Linux x86-64 or ARM64 (Debian 11+, Ubuntu 20.04+), or Windows Server 2019+.
@@ -163,3 +178,14 @@ sudo MIROCRAFT_BINARY=./mirocraft bash installer/install.sh
 - [docs/SECURITY.md](docs/SECURITY.md) — threat model, what is protected, how to report a vulnerability (Russian).
 - [docs/ROADMAP.md](docs/ROADMAP.md) — what is done, and what checking it found (Russian).
 - The live spec is at `/api/openapi.yaml`, Swagger UI at `/api/docs`.
+
+---
+
+## License
+
+[AGPL-3.0](LICENSE). Install it, change it, run it for yourself — freely and
+without conditions. The one condition applies to anyone running this code as a
+**service for other people**: their changes have to be published too. It asks
+nothing of someone hosting the panel for themselves.
+
+The name "Mirocraft" and the logo are not covered by the code license.

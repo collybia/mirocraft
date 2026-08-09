@@ -1,12 +1,16 @@
 # Mirocraft
 
+[![CI](https://github.com/collybia/mirocraft/actions/workflows/ci.yml/badge.svg)](https://github.com/collybia/mirocraft/actions/workflows/ci.yml)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)](go.mod)
+
 **Панель управления Minecraft-серверами, которую ставят себе.** Как Aternos, только
 сервер ваш: без очередей, без рекламы, без «сервер уснул, потому что никто не играл».
 
 Один бинарник — это демон, REST API и веб-панель сразу. Ни nginx, ни MySQL, ни Redis,
 ни отдельного агента на каждой машине.
 
-[English](README.en.md)
+[English](README.en.md) · [Документация](https://collybia.github.io/mirocraft/)
 
 ---
 
@@ -107,6 +111,18 @@ Pterodactyl — зрелая панель для хостинг-провайде
 
 ---
 
+## Не хочется возиться с VPS
+
+Всё выше — про то, как поставить панель себе. Если сервер под неё арендовать не
+хочется, [**MiroHost**](https://mirohost.tech) ставит Mirocraft за вас: панель уже
+поднята, домен и сертификат настроены, платите за сервер и играете.
+
+На функциональность самой панели это не влияет: это тот же код, что в этом
+репозитории, и вы в любой момент можете съехать на свой сервер — данные
+переносятся копированием каталога.
+
+---
+
 ## Требования
 
 - Linux x86-64 или ARM64 (Debian 11+, Ubuntu 20.04+), либо Windows Server 2019+.
@@ -159,3 +175,14 @@ sudo MIROCRAFT_BINARY=./mirocraft bash installer/install.sh
 - [docs/SECURITY.md](docs/SECURITY.md) — модель угроз, что защищено и как сообщить об уязвимости.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — что сделано и что нашлось при проверке.
 - Живая спека — `/api/openapi.yaml`, Swagger UI — `/api/docs`.
+
+---
+
+## Лицензия
+
+[AGPL-3.0](LICENSE). Ставьте, правьте, запускайте у себя — сколько угодно и без
+условий. Условие одно и касается только тех, кто поднимает на этом коде **сервис
+для других**: их правки тоже должны быть открыты. Тому, кто ставит панель себе,
+AGPL не мешает ничем.
+
+Название «Mirocraft» и логотип лицензией на код не покрываются.

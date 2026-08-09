@@ -57,6 +57,24 @@ export function Layout({ user, onLoggedOut, children }: Props) {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+
+      {/*
+        Not decoration and not a credit line: the AGPL asks that people who
+        use the program over a network be offered its source, and this panel
+        is exactly that. One line, at the bottom, where it costs nobody
+        anything and is there when someone looks for it.
+      */}
+      <footer className="mx-auto max-w-6xl px-4 pb-6 text-xs text-faint">
+        Mirocraft · AGPL-3.0 ·{" "}
+        <a
+          href="https://github.com/collybia/mirocraft"
+          target="_blank"
+          rel="noreferrer noopener"
+          className="hover:text-accent"
+        >
+          исходный код
+        </a>
+      </footer>
     </div>
   );
 }
