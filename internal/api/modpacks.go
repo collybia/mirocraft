@@ -173,8 +173,17 @@ func (a *API) handleInstallModpack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Charged at the pack's own size, not at what its index will download:
+	// what the mods weigh is only knowable after the pack has been read, and
+	// by then the request has answered. The allowance still catches the
+	// account that installs pack after pack.
+	if !a.enforceDiskQuota(w, r, server.OwnerID, plan.SizeBytes) {
+		return
+	}
+
 	task := a.tasks.startWithProgress("modpack.install", serverID, principal.UserID,
 		func(taskCtx context.Context, report func(int)) error {
+			defer a.diskUsage.forget(server.OwnerID)
 			return a.runModpackInstall(taskCtx, server, plan, file, report)
 		})
 

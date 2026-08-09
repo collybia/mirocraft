@@ -111,6 +111,7 @@ type API struct {
 	ping        Pinger
 	tickets     *TicketStore
 	tasks       *taskRegistry
+	diskUsage   *diskUsage
 
 	// scheduleRuns guards a chain against overlapping itself; a chain that
 	// waits can outlast the tick that started it.
@@ -191,6 +192,7 @@ func New(opts Options) *API {
 		bots:         opts.Bots,
 		tickets:      NewTicketStore(opts.TicketTTL),
 		tasks:        newTaskRegistry(),
+		diskUsage:    newDiskUsage(),
 		scheduleRuns: newRunningSchedules(),
 		dataDir:      dataDir,
 		portFrom:     portFrom,
@@ -425,7 +427,11 @@ func (a *API) Handler() http.Handler {
 		mux.HandleFunc(pattern, handler)
 	}
 
-	return a.logRequests(mux)
+	// An API response is JSON that no browser should frame, sniff or leak a
+	// referrer from. The CSP is the API's own, not the panel's: nothing here
+	// loads anything. The docs page needs a looser one and sets it in its
+	// handler, which runs after this and so wins.
+	return a.logRequests(SecurityHeaders("default-src 'none'; frame-ancestors 'none'")(mux))
 }
 
 type healthResponse struct {

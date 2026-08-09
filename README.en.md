@@ -160,5 +160,6 @@ sudo MIROCRAFT_BINARY=./mirocraft bash installer/install.sh
 - [docs/API.md](docs/API.md) — every endpoint and why it is shaped that way (Russian).
 - [docs/API_GUIDE.md](docs/API_GUIDE.md) — a quick start with curl examples (Russian).
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how it works inside (Russian).
+- [docs/SECURITY.md](docs/SECURITY.md) — threat model, what is protected, how to report a vulnerability (Russian).
 - [docs/ROADMAP.md](docs/ROADMAP.md) — what is done, and what checking it found (Russian).
 - The live spec is at `/api/openapi.yaml`, Swagger UI at `/api/docs`.

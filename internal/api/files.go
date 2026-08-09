@@ -172,7 +172,7 @@ func (a *API) handleReadFile(w http.ResponseWriter, r *http.Request) {
 
 // handleWriteFile serves PUT /servers/{id}/files/content?path=.
 func (a *API) handleWriteFile(w http.ResponseWriter, r *http.Request) {
-	root, _, ok := a.serverRoot(w, r, ScopeFilesWrite)
+	root, server, ok := a.serverRoot(w, r, ScopeFilesWrite)
 	if !ok {
 		return
 	}
@@ -182,11 +182,19 @@ func (a *API) handleWriteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The editor is capped at two megabytes a file, which is nobody's way of
+	// filling a disk — but it can create files, and an allowance that ignored
+	// a loop of them would be one an account could walk around.
+	if !a.enforceDiskQuota(w, r, server.OwnerID, int64(len(req.Content))) {
+		return
+	}
+
 	rel := r.URL.Query().Get("path")
 	if err := root.WriteText(rel, req.Content); err != nil {
 		a.writeFileError(w, err)
 		return
 	}
+	a.recordDiskWritten(server.OwnerID, int64(len(req.Content)))
 
 	a.auditFile(r, "file.write", rel)
 	w.WriteHeader(http.StatusNoContent)
@@ -220,8 +228,14 @@ func (a *API) handleDownloadFile(w http.ResponseWriter, r *http.Request) {
 
 // handleUploadFile serves POST /servers/{id}/files/upload.
 func (a *API) handleUploadFile(w http.ResponseWriter, r *http.Request) {
-	root, _, ok := a.serverRoot(w, r, ScopeFilesWrite)
+	root, server, ok := a.serverRoot(w, r, ScopeFilesWrite)
 	if !ok {
+		return
+	}
+
+	// Before the body is read: refusing after storing it would have already
+	// used the disk the refusal is about.
+	if !a.enforceDiskQuota(w, r, server.OwnerID, contentLength(r)) {
 		return
 	}
 
@@ -259,6 +273,7 @@ func (a *API) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 		a.writeFileError(w, err)
 		return
 	}
+	a.recordDiskWritten(server.OwnerID, written)
 
 	a.auditFile(r, "file.upload", target)
 	writeJSON(w, http.StatusCreated, uploadResponse{Path: target, Bytes: written})
@@ -373,7 +388,7 @@ func (a *API) handleArchive(w http.ResponseWriter, r *http.Request) {
 
 // handleUnarchive serves POST /servers/{id}/files/unarchive.
 func (a *API) handleUnarchive(w http.ResponseWriter, r *http.Request) {
-	root, _, ok := a.serverRoot(w, r, ScopeFilesWrite)
+	root, server, ok := a.serverRoot(w, r, ScopeFilesWrite)
 	if !ok {
 		return
 	}
@@ -391,10 +406,19 @@ func (a *API) handleUnarchive(w http.ResponseWriter, r *http.Request) {
 		destination = "/"
 	}
 
+	// Charged at the archive's own size, which is what is knowable before
+	// extracting it. What it expands to is bounded separately, by the
+	// sandbox: an archive is not a promise about its contents.
+	archive, err := root.Resolve(req.Path)
+	if err == nil && !a.enforceDiskQuota(w, r, server.OwnerID, fileSize(archive)) {
+		return
+	}
+
 	if err := root.Unarchive(req.Path, destination); err != nil {
 		a.writeFileError(w, err)
 		return
 	}
+	a.diskUsage.forget(server.OwnerID)
 
 	a.auditFile(r, "file.unarchive", req.Path)
 	w.WriteHeader(http.StatusNoContent)

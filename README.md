@@ -156,5 +156,6 @@ sudo MIROCRAFT_BINARY=./mirocraft bash installer/install.sh
 - [docs/API.md](docs/API.md) — все эндпоинты и почему они такие.
 - [docs/API_GUIDE.md](docs/API_GUIDE.md) — быстрый старт с примерами curl.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — как устроено внутри.
+- [docs/SECURITY.md](docs/SECURITY.md) — модель угроз, что защищено и как сообщить об уязвимости.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — что сделано и что нашлось при проверке.
 - Живая спека — `/api/openapi.yaml`, Swagger UI — `/api/docs`.

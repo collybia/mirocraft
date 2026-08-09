@@ -241,8 +241,15 @@ func (a *API) handleCatalogInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The plan knows exactly how many bytes this will bring, which is the one
+	// place a disk allowance can be applied before anything is downloaded.
+	if !a.enforceDiskQuota(w, r, server.OwnerID, plan.TotalBytes()) {
+		return
+	}
+
 	task := a.tasks.start("catalog.install", serverID, principal.UserID,
 		func(taskCtx context.Context) error {
+			defer a.diskUsage.forget(server.OwnerID)
 			return a.runInstall(taskCtx, server, content, plan)
 		})
 

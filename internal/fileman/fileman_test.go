@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -650,5 +651,86 @@ func TestRulesDoNotDependOnTheHost(t *testing.T) {
 			t.Errorf("Resolve(%q) was allowed on %s; the rules must not vary by host",
 				p, runtime.GOOS)
 		}
+	}
+}
+
+// A hundred thousand entries of a gigabyte each is the entry limit multiplied
+// by the file limit, and an archive that small on disk expanding to that much
+// is the whole idea behind a decompression bomb. The budget is what stops it.
+func TestUnarchiveRefusesAnArchiveThatExpandsPastTheBudget(t *testing.T) {
+	root, _ := newRoot(t)
+
+	// Lowered rather than proved with eight real gigabytes.
+	original := archiveBudget
+	archiveBudget = 1 << 10
+	t.Cleanup(func() { archiveBudget = original })
+
+	archivePath := filepath.Join(root.Dir(), "bomb.zip")
+	file, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatalf("creating: %v", err)
+	}
+	writer := zip.NewWriter(file)
+	// Compresses to almost nothing and expands to four times the budget.
+	for i := range 4 {
+		entry, err := writer.Create(fmt.Sprintf("padding-%d.bin", i))
+		if err != nil {
+			t.Fatalf("creating entry: %v", err)
+		}
+		if _, err := entry.Write(make([]byte, 1<<10)); err != nil {
+			t.Fatalf("writing entry: %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("closing: %v", err)
+	}
+	_ = file.Close()
+
+	err = root.Unarchive("/bomb.zip", "/unpacked")
+	if !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("Unarchive: %v, want ErrTooLarge", err)
+	}
+}
+
+// The same for tar.gz, where the size comes from a header the archive writes
+// about itself and so is not to be trusted either.
+func TestUntarRefusesAnArchiveThatExpandsPastTheBudget(t *testing.T) {
+	root, _ := newRoot(t)
+
+	original := archiveBudget
+	archiveBudget = 1 << 10
+	t.Cleanup(func() { archiveBudget = original })
+
+	archivePath := filepath.Join(root.Dir(), "bomb.tar.gz")
+	file, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatalf("creating: %v", err)
+	}
+	gz := gzip.NewWriter(file)
+	writer := tar.NewWriter(gz)
+	for i := range 4 {
+		body := make([]byte, 1<<10)
+		header := &tar.Header{
+			Name: fmt.Sprintf("padding-%d.bin", i),
+			Mode: 0o600, Size: int64(len(body)), Typeflag: tar.TypeReg,
+		}
+		if err := writer.WriteHeader(header); err != nil {
+			t.Fatalf("writing header: %v", err)
+		}
+		if _, err := writer.Write(body); err != nil {
+			t.Fatalf("writing entry: %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("closing the tar: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("closing the gzip: %v", err)
+	}
+	_ = file.Close()
+
+	err = root.Unarchive("/bomb.tar.gz", "/unpacked")
+	if !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("Unarchive: %v, want ErrTooLarge", err)
 	}
 }

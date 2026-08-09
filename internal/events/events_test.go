@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -488,5 +489,63 @@ func TestDispatcherRunDeliversFromTheBus(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the dispatcher delivered nothing")
+	}
+}
+
+// The name check and the request each resolve the name, and between the two a
+// name whose DNS the attacker controls can change its answer: public for the
+// check, 127.0.0.1 for the request. The guard that cannot be raced is on the
+// address actually being dialled, so this goes around checkURL entirely and
+// asks the client the dispatcher uses.
+func TestTheDispatchersClientRefusesToDialAPrivateAddress(t *testing.T) {
+	var reached int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&reached, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	d := NewDispatcher(stubSource{}, &stubRecorder{}, discardLogger())
+
+	resp, err := d.Client.Get(server.URL) //nolint:noctx // the point is the dial, not the request
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("the client dialled a loopback address with private hosts disabled")
+	}
+	if !strings.Contains(err.Error(), "internal address") {
+		t.Errorf("refused for the wrong reason: %v", err)
+	}
+	if atomic.LoadInt32(&reached) != 0 {
+		t.Error("the request arrived anyway")
+	}
+
+	// And an operator who says they mean it gets through.
+	d.AllowPrivateHosts = true
+	allowed, err := d.Client.Get(server.URL) //nolint:noctx // as above
+	if err != nil {
+		t.Fatalf("an allowed private target was still refused: %v", err)
+	}
+	_ = allowed.Body.Close()
+	if atomic.LoadInt32(&reached) != 1 {
+		t.Error("the allowed request did not arrive")
+	}
+}
+
+// The addresses worth refusing are wider than net.IP.IsPrivate: a cloud
+// instance keeps its credentials on a link-local address.
+func TestInternalAddresses(t *testing.T) {
+	for _, address := range []string{
+		"127.0.0.1", "::1", "10.0.0.5", "192.168.1.10", "172.16.0.1",
+		"169.254.169.254", "fd00::1", "fe80::1", "0.0.0.0", "100.64.0.1",
+	} {
+		if !isInternal(net.ParseIP(address)) {
+			t.Errorf("%s was not treated as internal", address)
+		}
+	}
+	for _, address := range []string{"1.1.1.1", "8.8.8.8", "93.184.216.34", "2606:4700::1111"} {
+		if isInternal(net.ParseIP(address)) {
+			t.Errorf("%s was treated as internal", address)
+		}
 	}
 }

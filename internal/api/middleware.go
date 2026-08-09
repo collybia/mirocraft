@@ -219,6 +219,51 @@ func (a *API) logRequests(next http.Handler) http.Handler {
 	})
 }
 
+// PanelCSP is the policy the web panel is served under.
+//
+// script-src allows inline because index.html carries one: the theme is
+// applied before the first paint, and a component cannot do that. Everything
+// else is closed as far as it goes. img-src allows https because the add-on
+// and modpack catalogues show icons straight from the registry's CDN — that is
+// a deliberate choice made where the panel loads them, and proxying them would
+// mean the panel fetching an image for every card.
+const PanelCSP = "default-src 'self'; " +
+	"script-src 'self' 'unsafe-inline'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: https:; " +
+	"connect-src 'self' ws: wss:; " +
+	"frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
+// SecurityHeaders sets the headers a browser needs to be told rather than left
+// to guess.
+//
+// frame-ancestors and X-Frame-Options together: the header is what older
+// browsers honour, and the directive is what the standard defines. Both say
+// the same thing — this panel is never framed. It has one-click buttons that
+// stop a server, and clickjacking is exactly the attack they invite.
+//
+// No Strict-Transport-Security, on purpose. A large share of these installs
+// are served with a self-signed certificate, and HSTS turns the browser's
+// "proceed anyway" into a dead end for a panel the operator can still reach
+// perfectly well. It belongs in the deployment that has a real certificate,
+// where the installer can set it, not in a header this code always sends.
+func SecurityHeaders(csp string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			header := w.Header()
+			header.Set("X-Content-Type-Options", "nosniff")
+			header.Set("X-Frame-Options", "DENY")
+			// The panel's address is often a private hostname, and it has no
+			// business travelling to a registry with every icon request.
+			header.Set("Referrer-Policy", "no-referrer")
+			if csp != "" && header.Get("Content-Security-Policy") == "" {
+				header.Set("Content-Security-Policy", csp)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // chain applies middleware in the order given, so the first listed is the
 // outermost.
 func chain(h http.Handler, middleware ...func(http.Handler) http.Handler) http.Handler {

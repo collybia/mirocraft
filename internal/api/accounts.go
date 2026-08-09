@@ -314,6 +314,16 @@ func (a *API) handlePatchMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The other sessions go with the old password. Changing it is what
+	// someone does when they think a session was stolen, and one that kept
+	// working until its own expiry would make the change theatre.
+	if req.Password != nil {
+		if _, err := a.store.Tokens.DeleteSessions(r.Context(), user.ID, principal.TokenID); err != nil {
+			a.log.Warn("revoking the other sessions failed",
+				slog.String("user_id", user.ID), slog.String("error", err.Error()))
+		}
+	}
+
 	a.audit(r, user.ID, "user.update_self", user.ID, "")
 	writeJSON(w, http.StatusOK, toUserResponse(user))
 }
@@ -554,6 +564,16 @@ func (a *API) handlePatchUser(w http.ResponseWriter, r *http.Request) {
 	if err := a.store.Users.Update(r.Context(), user); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternalError, "could not update the user")
 		return
+	}
+
+	// An administrator resetting someone's password is usually doing it
+	// because that account is in the wrong hands. Every session of theirs
+	// goes, this time without exception: the caller is not the account.
+	if req.Password != nil {
+		if _, err := a.store.Tokens.DeleteSessions(r.Context(), user.ID, ""); err != nil {
+			a.log.Warn("revoking the sessions of a reset account failed",
+				slog.String("user_id", user.ID), slog.String("error", err.Error()))
+		}
 	}
 
 	a.audit(r, principal.UserID, "user.update", user.ID, "")

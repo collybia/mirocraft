@@ -499,7 +499,9 @@ func rootHandler(apiHandler http.Handler, log *slog.Logger) http.Handler {
 		return mux
 	}
 
-	mux.Handle("/", panel)
+	// The panel, not the API, is what a browser renders and what an attacker
+	// would want to frame: it has buttons that stop servers and delete them.
+	mux.Handle("/", api.SecurityHeaders(api.PanelCSP)(panel))
 	log.Info("web panel mounted")
 	return mux
 }

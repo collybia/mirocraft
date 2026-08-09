@@ -124,6 +124,14 @@ func (a *API) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A backup is a copy of the world, so it is charged against the same
+	// allowance. Its size is not knowable until it is made; what this refuses
+	// is another one from an account already at its limit, which is what
+	// stops a loop of them from filling the host.
+	if !a.enforceDiskQuota(w, r, server.OwnerID, 0) {
+		return
+	}
+
 	record := &store.Backup{ServerID: serverID, Note: req.Note, State: store.BackupPending}
 	if err := a.store.Backups.Create(r.Context(), record); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternalError, "could not record the backup")
@@ -132,6 +140,7 @@ func (a *API) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 
 	task := a.tasks.start("backup.create", serverID, principal.UserID,
 		func(ctx context.Context) error {
+			defer a.diskUsage.forget(server.OwnerID)
 			return a.runBackup(ctx, server, record)
 		})
 

@@ -6,6 +6,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -53,6 +54,28 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening database %s: %w", path, err)
+	}
+
+	// Before the pragmas, because WAL creates its sidecar files with the
+	// permissions of the database file and this is the moment to set them.
+	//
+	// The rows include the chat bots' tokens, which have to be stored in a
+	// form the daemon can hand to Discord, and every password hash. The
+	// directory is already 0750, so this only matters on a host where
+	// something else got inside it — but that is exactly when it matters.
+	if path != ":memory:" {
+		// sql.Open is lazy, so without a round trip the file may not exist
+		// yet and there would be nothing to change the mode of.
+		if err := db.PingContext(ctx); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("opening database %s: %w", path, err)
+		}
+		// A failure here is not fatal on purpose: the daemon can still read
+		// its own database, and refusing to start because it could not
+		// tighten a file it already owns would trade a working panel for a
+		// permission bit. On Windows this only toggles the read-only flag —
+		// there the ACL is inherited from the data directory.
+		_ = os.Chmod(path, 0o600)
 	}
 
 	// SQLite takes a write lock per database, so extra writer connections only

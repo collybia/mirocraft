@@ -25,7 +25,19 @@ const (
 	MaxListEntries = 5000
 	// MaxArchiveEntries caps what an archive operation will process.
 	MaxArchiveEntries = 100_000
+	// MaxArchiveBytes caps what an extraction may write in total.
+	//
+	// The per-entry limit alone is not one: a hundred thousand entries of a
+	// gigabyte each is the entry limit multiplied by the file limit, and a
+	// zip that small on disk expanding to that much is the whole idea behind
+	// a decompression bomb. Eight gigabytes is far more than any world or
+	// modpack anyone extracts through a panel, and far less than a disk.
+	MaxArchiveBytes = 8 << 30 // 8 GiB
 )
+
+// archiveBudget is MaxArchiveBytes, as a variable so a test can exercise the
+// refusal without writing eight gigabytes to prove it.
+var archiveBudget int64 = MaxArchiveBytes
 
 // Operation errors.
 var (
@@ -491,6 +503,7 @@ func (r *Root) unzip(archive, destPrefix string) error {
 		return fmt.Errorf("the archive holds more than %d entries", MaxArchiveEntries)
 	}
 
+	budget := archiveBudget
 	for _, entry := range reader.File {
 		target, err := r.resolveMember(destPrefix, entry.Name)
 		if err != nil {
@@ -515,10 +528,18 @@ func (r *Root) unzip(archive, destPrefix string) error {
 		if err != nil {
 			return fmt.Errorf("reading %s: %w", entry.Name, err)
 		}
-		err = writeAtomic(target, io.LimitReader(body, MaxUploadBytes), int64(entry.UncompressedSize64))
+		// Counted from what was actually written rather than from the
+		// declared size: a header claiming one byte per entry is how a bomb
+		// gets past a budget that trusts it.
+		written, err := writeAtomicCounted(target, io.LimitReader(body, MaxUploadBytes))
 		_ = body.Close()
 		if err != nil {
 			return err
+		}
+		budget -= written
+		if budget < 0 {
+			return fmt.Errorf("%w: the archive expands to more than %d bytes",
+				ErrTooLarge, archiveBudget)
 		}
 	}
 	return nil
@@ -540,6 +561,7 @@ func (r *Root) untar(archive, destPrefix string) error {
 
 	reader := tar.NewReader(gz)
 	entries := 0
+	budget := archiveBudget
 
 	for {
 		header, err := reader.Next()
@@ -572,8 +594,14 @@ func (r *Root) untar(archive, destPrefix string) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 				return fmt.Errorf("creating the parent of %s: %w", header.Name, err)
 			}
-			if err := writeAtomic(target, io.LimitReader(reader, MaxUploadBytes), header.Size); err != nil {
+			written, err := writeAtomicCounted(target, io.LimitReader(reader, MaxUploadBytes))
+			if err != nil {
 				return err
+			}
+			budget -= written
+			if budget < 0 {
+				return fmt.Errorf("%w: the archive expands to more than %d bytes",
+					ErrTooLarge, archiveBudget)
 			}
 		default:
 			// Symlinks, devices and hard links are skipped: a link is the

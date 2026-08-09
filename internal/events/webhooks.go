@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -94,12 +95,71 @@ func NewDispatcher(source TargetSource, recorder Recorder, log *slog.Logger) *Di
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Dispatcher{
+	d := &Dispatcher{
 		Source:   source,
 		Recorder: recorder,
-		Client:   &http.Client{Timeout: RequestTimeout},
 		log:      log,
 	}
+	d.Client = &http.Client{Timeout: RequestTimeout, Transport: d.transport()}
+	return d
+}
+
+// transport dials only the addresses checkURL would have allowed.
+//
+// checkURL resolves the name, and then the client resolves it again. Between
+// those two lookups a name whose DNS the attacker controls can change its
+// answer: public for the check, 127.0.0.1 for the request. The check that
+// cannot be raced is the one made on the address actually being connected to,
+// which is what Control sees.
+func (d *Dispatcher) transport() http.RoundTripper {
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	dialer.Control = func(_, address string, _ syscall.RawConn) error {
+		if d.AllowPrivateHosts {
+			return nil
+		}
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return fmt.Errorf("refusing to dial %q: %w", address, err)
+		}
+		ip := net.ParseIP(host)
+		if ip == nil {
+			// Control is called with a resolved address; anything else is a
+			// case this does not understand, and guessing would be the bug.
+			return fmt.Errorf("refusing to dial %q: not an address", address)
+		}
+		if isInternal(ip) {
+			return fmt.Errorf("refusing to deliver to the internal address %s; "+
+				"enable private webhook targets in the configuration if this is deliberate", ip)
+		}
+		return nil
+	}
+	return &http.Transport{
+		// The operator's own proxy setting is honoured: they configured it.
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           dialer.DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: RequestTimeout,
+		MaxIdleConnsPerHost:   2,
+	}
+}
+
+// isInternal reports whether an address belongs to this host or its network.
+//
+// Wider than net.IP.IsPrivate: that covers RFC 1918 and unique-local, and the
+// addresses worth refusing also include loopback, link-local — where a cloud
+// instance keeps its credentials, at 169.254.169.254 — the unspecified
+// address, and carrier-grade NAT, which is what a lot of home connections and
+// some VPN overlays actually sit on.
+func isInternal(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
+		return true
+	}
+	if four := ip.To4(); four != nil {
+		// 100.64.0.0/10, RFC 6598.
+		return four[0] == 100 && four[1] >= 64 && four[1] <= 127
+	}
+	return false
 }
 
 // Run delivers every event on the bus until ctx is cancelled.
@@ -264,8 +324,8 @@ func (d *Dispatcher) checkURL(raw string) error {
 		return nil //nolint:nilerr // an unresolvable name is not a rejection reason
 	}
 	for _, ip := range ips {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-			return fmt.Errorf("refusing to deliver to the private address %s; "+
+		if isInternal(ip) {
+			return fmt.Errorf("refusing to deliver to the internal address %s; "+
 				"enable private webhook targets in the configuration if this is deliberate", ip)
 		}
 	}

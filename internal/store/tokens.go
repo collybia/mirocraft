@@ -151,6 +151,32 @@ func (r *TokenRepo) DeleteByUserAndName(ctx context.Context, userID, name string
 	return nil
 }
 
+// DeleteSessions revokes an account's browser sessions, keeping the one named
+// by exceptID. An empty exceptID revokes all of them.
+//
+// What a password change is for: someone whose session was stolen changes it
+// to lock the thief out, and a session that kept working until its own expiry
+// would make the change theatre. The exception is the session doing the
+// changing — logging someone out of the tab they just used would be read as
+// the change having failed.
+//
+// API tokens are left alone deliberately: they are credentials the owner
+// minted on purpose, listed in the panel and revocable one by one, and a
+// password change is not a reason to break every script the account runs.
+func (r *TokenRepo) DeleteSessions(ctx context.Context, userID, exceptID string) (int64, error) {
+	res, err := r.db.ExecContext(ctx,
+		`DELETE FROM tokens WHERE user_id = ? AND kind = ? AND id <> ?`,
+		userID, TokenKindSession, exceptID)
+	if err != nil {
+		return 0, fmt.Errorf("deleting sessions for user %s: %w", userID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("counting deleted sessions: %w", err)
+	}
+	return n, nil
+}
+
 // DeleteExpired removes tokens whose expiry has passed and reports how many
 // were removed.
 func (r *TokenRepo) DeleteExpired(ctx context.Context, now time.Time) (int64, error) {

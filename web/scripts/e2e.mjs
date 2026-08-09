@@ -69,23 +69,39 @@ try {
   await page.fill("#name", "e2e-test");
 
   // The version field is a dropdown filled from the daemon, and a text input
-  // only while that list is still loading or upstream is unreachable. Both are
-  // real states, so the test handles both rather than assuming the fast one.
-  await page.waitForFunction(
-    () => {
-      const field = document.querySelector("#version");
-      return field && (field.tagName === "INPUT" || field.options.length > 0);
-    },
-    { timeout: 20000 },
-  );
+  // while that list is loading or upstream is unreachable.
+  //
+  // Waiting for "either state" is what this used to do, and it resolved on the
+  // loading state the instant the form rendered — then reported the loading
+  // state as a failure. The wait is for the state that means success; the
+  // fallback is what happens when it never comes.
+  let versionsArrived = true;
+  try {
+    await page.waitForFunction(
+      () => {
+        const field = document.querySelector("#version");
+        return field && field.tagName === "SELECT" && field.options.length > 0;
+      },
+      { timeout: 30000 },
+    );
+  } catch {
+    versionsArrived = false;
+  }
+  check("the version list is filled from the daemon", versionsArrived,
+    "the field was still a text input after 30s, so the list never arrived");
+
   const versionField = page.locator("#version");
-  if ((await versionField.evaluate((el) => el.tagName)) === "SELECT") {
-    await versionField.selectOption("1.21.4");
-    check("the version list is filled from the daemon", true);
+  if (versionsArrived) {
+    // The newest release rather than a version written into this file:
+    // upstream drops old ones, and a test that names one starts failing on
+    // their schedule instead of on ours.
+    const chosen = await versionField.evaluate((el) => {
+      const release = [...el.options].find((o) => !o.textContent.includes("снапшот"));
+      return (release ?? el.options[0]).value;
+    });
+    await versionField.selectOption(chosen);
   } else {
     await versionField.fill("1.21.4");
-    check("the version list is filled from the daemon", false,
-      "the field was still a text input, so the list never arrived");
   }
 
   await page.check('input[type="checkbox"]');
@@ -251,8 +267,15 @@ try {
 
   await page.click('button:has-text("Дополнения")');
   await page.waitForSelector("text=Установлено", { timeout: 20000 });
-  check("the catalogue tab reports what this core accepts",
-    (await page.locator("text=paper ·").count()) > 0);
+
+  // Waited for rather than counted: "Установлено" is in the second section and
+  // renders at once, while the loader line waits on a request. Counting here
+  // asks the question before the answer can have arrived.
+  const loaderShown = await page
+    .waitForSelector("text=paper ·", { timeout: 20000 })
+    .then(() => true)
+    .catch(() => false);
+  check("the catalogue tab reports what this core accepts", loaderShown);
   check("a server with nothing installed says so",
     (await page.locator("text=Пока ничего не установлено").count()) > 0);
   await shoot(page, "12-catalog");
