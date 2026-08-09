@@ -435,9 +435,50 @@ read_panel_url() {
     : "${host:=localhost}"
 
     PANEL_URL="${scheme}://${host}:${port}"
+    PANEL_PORT="${port}"
 }
 
 # --- the service -----------------------------------------------------------
+
+# open_firewall lets the panel's port through a firewall this machine runs
+# itself.
+#
+# The Windows installer has always added its rule; this one did not, and the
+# result was an install that reports success and a panel nobody can reach —
+# the same "it does not work" as a crash, with nothing in the journal to
+# explain it, because from the daemon's side nothing is wrong.
+#
+# Only firewalls that are actually enabled are touched, and only the one port.
+# A machine with no firewall gets nothing done to it: turning one on because
+# an installer felt like it would be a change nobody asked for.
+open_firewall() {
+    local port="$1"
+
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+        if ufw allow "${port}/tcp" >/dev/null 2>&1; then
+            ok "Открыл порт ${port} в ufw"
+        else
+            warn "Не смог открыть порт ${port} в ufw — сделайте вручную: ufw allow ${port}/tcp"
+        fi
+        return
+    fi
+
+    if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+        if firewall-cmd --permanent --add-port="${port}/tcp" >/dev/null 2>&1 &&
+           firewall-cmd --reload >/dev/null 2>&1; then
+            ok "Открыл порт ${port} в firewalld"
+        else
+            warn "Не смог открыть порт ${port} в firewalld — сделайте вручную:
+     firewall-cmd --permanent --add-port=${port}/tcp && firewall-cmd --reload"
+        fi
+        return
+    fi
+
+    # No firewall here to open. The one in front of the machine — the
+    # hoster's — is not visible from inside it, and is the usual reason a
+    # panel that works locally cannot be reached.
+    PANEL_FIREWALL_UNKNOWN="yes"
+}
 
 write_service() {
     step "Пишу юнит systemd"
@@ -544,6 +585,10 @@ main() {
     say ""
     ok "Служба запущена"
 
+    # After the service, not before: a port opened for a daemon that never
+    # started is a hole for nothing.
+    open_firewall "${PANEL_PORT}"
+
     if [ "${upgrading}" = "yes" ]; then
         say ""
         say "Обновлено. Настройки и данные на месте."
@@ -565,6 +610,12 @@ main() {
         say "           странице настроек.${C_OFF}"
     fi
     print_credentials
+    if [ "${PANEL_FIREWALL_UNKNOWN:-no}" = "yes" ]; then
+        say "  ${C_DIM}Если панель не открывается снаружи, а локально отвечает —"
+        say "  порт ${PANEL_PORT} закрыт фаерволом хостера. Он не виден с самой"
+        say "  машины, откройте его в панели провайдера.${C_OFF}"
+        say ""
+    fi
     say "  Журнал:  ${C_DIM}journalctl -u ${SERVICE_NAME} -f${C_OFF}"
     say ""
 }
