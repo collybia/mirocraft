@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/collybia/mirocraft/bots/internal/panelclient"
 	"github.com/collybia/mirocraft/internal/api"
 	"github.com/collybia/mirocraft/internal/mcping"
+	"github.com/collybia/mirocraft/internal/panelclient"
 	"github.com/collybia/mirocraft/internal/runner"
 	"github.com/collybia/mirocraft/internal/store"
 )

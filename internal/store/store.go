@@ -36,6 +36,7 @@ type Store struct {
 	CustomThemes *CustomThemeRepo
 	Audit        *AuditRepo
 	Integrations *IntegrationRepo
+	Bots         *BotRepo
 }
 
 // Open opens (or creates) the database at path and applies pending migrations.
@@ -81,6 +82,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	s.CustomThemes = &CustomThemeRepo{db: db}
 	s.Audit = &AuditRepo{db: db}
 	s.Integrations = &IntegrationRepo{db: db}
+	s.Bots = &BotRepo{db: db}
 
 	if err := s.migrate(ctx); err != nil {
 		_ = db.Close()

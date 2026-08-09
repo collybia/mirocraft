@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/collybia/mirocraft/bots/internal/panelclient"
+	"github.com/collybia/mirocraft/internal/panelclient"
 )
 
 // waitFor polls until condition holds, so tests do not race a server that is

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/collybia/mirocraft/bots/internal/panelclient"
+	"github.com/collybia/mirocraft/internal/panelclient"
 )
 
 // --- addresses ---

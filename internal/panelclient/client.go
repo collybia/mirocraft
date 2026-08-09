@@ -42,6 +42,10 @@ type Client struct {
 	token   string
 	http    *http.Client
 	agent   string
+
+	// onBehalfOf is the chat account this client acts for, empty when it acts
+	// as itself. Set by For, which returns a copy.
+	onBehalfOf string
 }
 
 // Option configures a client.
@@ -157,6 +161,7 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
+	c.applyDelegation(req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -204,6 +209,12 @@ var (
 	// ErrAlreadyRunning means a start was asked for a server that is already
 	// up. Distinct from ErrNotRunning so a bot can say which it was.
 	ErrAlreadyRunning = errors.New("panelclient: the server is already running")
+	// ErrLinkCodeInvalid means the linking code is unknown, expired or spent.
+	// Separate from ErrValidation because the answer is different: "ask the
+	// panel for a new code", not "you typed the command wrong".
+	ErrLinkCodeInvalid = errors.New("panelclient: the linking code is invalid or has expired")
+	// ErrLinkTaken means the chat account is already linked to someone else.
+	ErrLinkTaken = errors.New("panelclient: that account is already linked")
 )
 
 // Error is a rejection from the panel, carrying everything the API documents
@@ -257,6 +268,10 @@ func (e *Error) Is(target error) bool {
 		return e.Code == codeServerAlreadyRunning
 	case ErrValidation:
 		return e.Code == codeValidationFailed || (e.Code == "" && e.StatusCode == http.StatusBadRequest)
+	case ErrLinkCodeInvalid:
+		return e.Code == codeLinkInvalid
+	case ErrLinkTaken:
+		return e.Code == codeLinkTaken
 	case ErrRateLimited:
 		return e.Code == codeRateLimited || (e.Code == "" && e.StatusCode == http.StatusTooManyRequests)
 	default:
@@ -275,6 +290,8 @@ const (
 	codeServerNotRunning     = "server_not_running"
 	codeServerAlreadyRunning = "server_already_running"
 	codeRateLimited          = "rate_limited"
+	codeLinkInvalid          = "link_code_invalid"
+	codeLinkTaken            = "link_taken"
 )
 
 // parseError turns a failed response into an *Error.

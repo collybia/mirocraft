@@ -105,13 +105,41 @@ func (c *Client) FindServer(ctx context.Context, nameOrID string) (Server, error
 	case 1:
 		return partial[0], nil
 	default:
-		names := make([]string, 0, len(partial))
-		for _, s := range partial {
-			names = append(names, s.Name)
-		}
-		return Server{}, fmt.Errorf("%w: %q matches several servers: %s",
-			ErrValidation, nameOrID, strings.Join(names, ", "))
+		// The candidates are carried rather than formatted into a sentence:
+		// the caller is a bot that speaks to people in its own language, and
+		// a message built here would arrive in the wrong one.
+		return Server{}, &AmbiguousError{Query: nameOrID, Matches: partial}
 	}
+}
+
+// AmbiguousError reports that a name matched more than one server.
+type AmbiguousError struct {
+	// Query is what was asked for.
+	Query string
+	// Matches are the servers it could have meant.
+	Matches []Server
+}
+
+func (e *AmbiguousError) Error() string {
+	names := make([]string, 0, len(e.Matches))
+	for _, s := range e.Matches {
+		names = append(names, s.Name)
+	}
+	return fmt.Sprintf("panelclient: %q matches several servers: %s",
+		e.Query, strings.Join(names, ", "))
+}
+
+// Is reports the ambiguity as a validation failure too, so a caller that does
+// not care which kind it was still handles it.
+func (e *AmbiguousError) Is(target error) bool { return target == ErrValidation }
+
+// Names returns the matching servers' names, for a caller building a message.
+func (e *AmbiguousError) Names() []string {
+	names := make([]string, 0, len(e.Matches))
+	for _, s := range e.Matches {
+		names = append(names, s.Name)
+	}
+	return names
 }
 
 // CreateServer creates a server and returns it as stored.
