@@ -47,6 +47,9 @@ var (
 	ErrUnknownVersion  = errors.New("version is not available for this core")
 	ErrNoBuilds        = errors.New("no builds published for this version")
 	ErrChecksum        = errors.New("downloaded file failed its checksum")
+	// ErrUnsupportedPlatform reports that upstream publishes nothing for the
+	// machine this would run on.
+	ErrUnsupportedPlatform = errors.New("upstream publishes no build for this platform")
 )
 
 // Version is one Minecraft version a provider can serve.
@@ -73,6 +76,10 @@ const (
 	// directly does nothing useful, and what it writes into the directory is
 	// what actually gets started.
 	ArtifactInstaller Artifact = "installer"
+	// ArtifactArchive is a zip or tarball whose contents are the server.
+	// Mojang ships the Bedrock server this way — a native executable and its
+	// libraries — so there is nothing to run until it is unpacked.
+	ArtifactArchive Artifact = "archive"
 	// ArtifactSource means there is nothing to download: the jar is compiled
 	// on this machine. Spigot is the only one — SpigotMC cannot redistribute
 	// Mojang's code, so they ship a tool that assembles the server locally.
@@ -109,6 +116,15 @@ type Build struct {
 	SizeBytes int64 `json:"size_bytes,omitempty"`
 	JavaMajor int   `json:"java_major"`
 
+	// UserAgent overrides what the downloader identifies itself as. Empty uses
+	// the panel's own, which is what almost every upstream wants — PaperMC
+	// explicitly asks callers to identify themselves.
+	//
+	// The exception is Mojang's Bedrock CDN, which refuses this panel's agent
+	// outright: the connection is closed mid-stream, which surfaces as an
+	// HTTP/2 internal error rather than as a rejection. Found by running it.
+	UserAgent string `json:"-"`
+
 	// Artifact says whether the file is the server or a launcher for it.
 	// Empty means ArtifactServer, which is what most cores publish.
 	Artifact Artifact `json:"artifact,omitempty"`
@@ -123,6 +139,9 @@ func (b *Build) NeedsInstall() bool { return b.Artifact == ArtifactInstaller }
 
 // NeedsBuild reports whether the jar has to be compiled on this machine.
 func (b *Build) NeedsBuild() bool { return b.Artifact == ArtifactSource }
+
+// NeedsUnpack reports whether the download is an archive to extract.
+func (b *Build) NeedsUnpack() bool { return b.Artifact == ArtifactArchive }
 
 // LocalBuilder is implemented by a provider whose core is compiled rather than
 // downloaded.

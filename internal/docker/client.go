@@ -259,6 +259,11 @@ type ContainerSpec struct {
 	Binds []string
 	// Ports maps a container port to a host port, both TCP.
 	Ports map[int]int
+	// UDPPorts is the same for UDP. A separate map rather than a protocol on
+	// each entry: a Java server publishes only TCP and a Bedrock server only
+	// UDP, and a container that published both would hold a port nothing
+	// listens on away from the server that needs it.
+	UDPPorts map[int]int
 	// MemoryBytes is the hard memory limit. Zero means unlimited.
 	MemoryBytes int64
 	// NanoCPUs limits CPU time; 1e9 is one core. Zero means unlimited.
@@ -277,6 +282,11 @@ func (c *Client) CreateContainer(ctx context.Context, spec ContainerSpec) (strin
 	bindings := map[string][]map[string]string{}
 	for containerPort, hostPort := range spec.Ports {
 		key := strconv.Itoa(containerPort) + "/tcp"
+		exposed[key] = struct{}{}
+		bindings[key] = []map[string]string{{"HostPort": strconv.Itoa(hostPort)}}
+	}
+	for containerPort, hostPort := range spec.UDPPorts {
+		key := strconv.Itoa(containerPort) + "/udp"
 		exposed[key] = struct{}{}
 		bindings[key] = []map[string]string{{"HostPort": strconv.Itoa(hostPort)}}
 	}

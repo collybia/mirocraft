@@ -28,6 +28,7 @@ import (
 	"github.com/collybia/mirocraft/internal/dns"
 	"github.com/collybia/mirocraft/internal/events"
 	"github.com/collybia/mirocraft/internal/java"
+	"github.com/collybia/mirocraft/internal/php"
 	"github.com/collybia/mirocraft/internal/runner"
 	"github.com/collybia/mirocraft/internal/store"
 	"github.com/collybia/mirocraft/web"
@@ -108,6 +109,9 @@ func run(parent context.Context) error {
 	jdkMgr := java.NewManager(filepath.Join(cfg.DataDir, "jdk"), log)
 	jdkMgr.Image = java.ImageJDK
 	provisioner.JDK = jdkMgr
+	// PocketMine runs on PHP, and on its own PHP: a distribution's refuses the
+	// phar over a missing extension.
+	provisioner.PHP = php.NewManager(filepath.Join(cfg.DataDir, "php"), log)
 	// A container brings its own Java, so downloading 110 MB of JRE onto the
 	// host to run a server that will never touch it is pure waste.
 	provisioner.SkipHostJava = selected.docker != nil

@@ -316,5 +316,11 @@ func DefaultRegistry(client *http.Client) *Registry {
 	r.Register(NewVelocity(client))
 	r.Register(NewBungeeCord(client))
 	r.Register(NewWaterfall(client))
+
+	// Bedrock. Last because a panel is used to run Java servers far more
+	// often, and because these are the ones that are not jars.
+	r.Register(NewBedrock(client))
+	r.Register(NewPowerNukkitX(client))
+	r.Register(NewPocketMine(client))
 	return r
 }

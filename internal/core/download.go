@@ -150,7 +150,11 @@ func (d *Downloader) download(ctx context.Context, b *Build, path string) error 
 	if err != nil {
 		return fmt.Errorf("building the download request: %w", err)
 	}
-	req.Header.Set("User-Agent", userAgent)
+	agent := userAgent
+	if b.UserAgent != "" {
+		agent = b.UserAgent
+	}
+	req.Header.Set("User-Agent", agent)
 
 	client := d.Client
 	if client == nil {

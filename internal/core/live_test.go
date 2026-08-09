@@ -69,7 +69,11 @@ func TestLiveProvidersResolve(t *testing.T) {
 				t.Logf("%s publishes no checksum for %s; downloads are trusted to TLS alone",
 					p.ID(), build.Version)
 			}
-			if build.JavaMajor <= 0 {
+			// A native server needs no Java at all, and zero is the honest
+			// answer there: the runner reads this to pick an image, and a
+			// number invented for a binary that does not use one would send
+			// it to the wrong image.
+			if p.Runtime() == RuntimeJava && build.JavaMajor <= 0 {
 				t.Errorf("no Java requirement resolved for %s %s", p.ID(), build.Version)
 			}
 

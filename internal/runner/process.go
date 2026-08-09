@@ -34,6 +34,22 @@ type CommandBuilder func(srv *Server) (name string, args []string, err error)
 // DefaultCommandBuilder builds the standard `java -Xms -Xmx -jar <jar> nogui`
 // invocation.
 func DefaultCommandBuilder(srv *Server) (string, []string, error) {
+	// A server that is its own program: no JVM, no heap flags, no jar.
+	//
+	// Two shapes arrive here and they need opposite treatment. The Bedrock
+	// server is a file inside the server directory, and passing its bare name
+	// would have os/exec look for it on PATH — everywhere except where it is.
+	// A PHP interpreter is an absolute path from the runtime manager and lives
+	// outside the server directory entirely; joining that with the directory
+	// produces a path with two drive letters in it, which is what happened
+	// before this told them apart.
+	if srv.Executable != "" {
+		program := srv.Executable
+		if !filepath.IsAbs(program) {
+			program = filepath.Join(srv.Dir, program)
+		}
+		return program, srv.LaunchArgs, nil
+	}
 	if srv.JarName == "" && len(srv.LaunchArgs) == 0 {
 		return "", nil, errors.New("server jar is not set")
 	}

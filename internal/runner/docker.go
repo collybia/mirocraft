@@ -181,11 +181,14 @@ func (r *DockerRunner) Start(ctx context.Context, srv *Server) error {
 		return err
 	}
 
-	image := r.Image
-	if image == nil {
-		image = DefaultImage
+	ref := srv.Image
+	if ref == "" {
+		image := r.Image
+		if image == nil {
+			image = DefaultImage
+		}
+		ref = image(srv.JavaMajor)
 	}
-	ref := image(srv.JavaMajor)
 
 	if err := r.ensureImage(ctx, ref); err != nil {
 		return err
@@ -220,7 +223,11 @@ func (r *DockerRunner) Start(ctx context.Context, srv *Server) error {
 		User:        containerUser(),
 	}
 	if srv.Port > 0 {
-		spec.Ports = map[int]int{srv.Port: srv.Port}
+		if srv.UDP {
+			spec.UDPPorts = map[int]int{srv.Port: srv.Port}
+		} else {
+			spec.Ports = map[int]int{srv.Port: srv.Port}
+		}
 	}
 	if r.CPUs > 0 {
 		spec.NanoCPUs = int64(r.CPUs * 1e9)
@@ -296,6 +303,11 @@ func containerCommand(srv *Server) []string {
 	jar := srv.JarName
 	if jar == "" {
 		jar = "server.jar"
+	}
+
+	// A native server is its own program: no JVM, no heap flags.
+	if srv.Executable != "" {
+		return append([]string{"./" + srv.Executable}, srv.LaunchArgs...)
 	}
 
 	cmd := []string{

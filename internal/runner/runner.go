@@ -54,6 +54,20 @@ type Server struct {
 	JarName  string   // server jar relative to Dir
 	JavaArgs []string // extra JVM flags, e.g. Aikar's
 
+	// UDP says the server listens on UDP rather than TCP. Bedrock does: a
+	// container publishing its port as TCP would accept nothing.
+	UDP bool
+
+	// Image overrides the container image. Empty lets the runner choose one
+	// from the Java version, which is right for a JVM and wrong for a native
+	// binary that needs a plain distribution instead.
+	Image string
+
+	// Executable is a program to run instead of a JVM, relative to Dir. The
+	// Bedrock server is a native binary: there is no jar and no -Xmx, and
+	// giving it JVM flags would make it refuse to start.
+	Executable string
+
 	// StopCommand is what is written to the server's stdin to ask it to shut
 	// down. Empty means the runner's default.
 	//
