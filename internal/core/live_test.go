@@ -54,7 +54,9 @@ func TestLiveProvidersResolve(t *testing.T) {
 				t.Fatalf("Resolve: %v", err)
 			}
 
-			if build.URL == "" || build.FileName == "" {
+			// A core that is compiled here has no URL by design: the artifact
+			// does not exist anywhere until this machine makes it.
+			if build.FileName == "" || (build.URL == "" && !build.NeedsBuild()) {
 				t.Fatalf("incomplete build: %+v", build)
 			}
 			// Not every project publishes one. Fabric's server endpoint and

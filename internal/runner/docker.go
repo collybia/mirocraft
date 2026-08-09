@@ -115,6 +115,10 @@ type container struct {
 	// gives and what keeps the two from getting out of step.
 	conn net.Conn
 
+	// stopWord is what this server understands as "shut down", remembered from
+	// the record because Stop is called with an id and nothing else.
+	stopWord string
+
 	mu        sync.Mutex
 	status    Status
 	startedAt time.Time
@@ -229,6 +233,7 @@ func (r *DockerRunner) Start(ctx context.Context, srv *Server) error {
 
 	c := &container{
 		id:          srv.ID,
+		stopWord:    srv.StopCommand,
 		containerID: containerID,
 		hub:         NewHub(ConsoleBufferLines),
 		status:      StatusStarting,
@@ -430,7 +435,11 @@ func (r *DockerRunner) Stop(ctx context.Context, id string, timeout time.Duratio
 	c.mu.Unlock()
 	c.setStatus(StatusStopping)
 
-	if _, err := io.WriteString(c.conn, r.StopCommand+"\n"); err != nil {
+	word := c.stopWord
+	if word == "" {
+		word = r.StopCommand
+	}
+	if _, err := io.WriteString(c.conn, word+"\n"); err != nil {
 		r.log.Warn("writing the stop command failed, killing instead",
 			slog.String("server_id", id), slog.String("error", err.Error()))
 		return r.Kill(ctx, id)

@@ -2394,6 +2394,11 @@ components:
           type: string
           description: куда кладутся дополнения
           example: plugins
+        builds_locally:
+          type: boolean
+          description: |
+            ядро не раздаётся готовым и собирается на этой машине — первый
+            сервер такой версии ждёт компиляцию, а не загрузку
 
     CoreVersion:
       type: object

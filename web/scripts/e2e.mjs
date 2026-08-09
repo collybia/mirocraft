@@ -67,7 +67,27 @@ try {
 
   await page.click("text=Создать сервер");
   await page.fill("#name", "e2e-test");
-  await page.fill("#version", "1.21.4");
+
+  // The version field is a dropdown filled from the daemon, and a text input
+  // only while that list is still loading or upstream is unreachable. Both are
+  // real states, so the test handles both rather than assuming the fast one.
+  await page.waitForFunction(
+    () => {
+      const field = document.querySelector("#version");
+      return field && (field.tagName === "INPUT" || field.options.length > 0);
+    },
+    { timeout: 20000 },
+  );
+  const versionField = page.locator("#version");
+  if ((await versionField.evaluate((el) => el.tagName)) === "SELECT") {
+    await versionField.selectOption("1.21.4");
+    check("the version list is filled from the daemon", true);
+  } else {
+    await versionField.fill("1.21.4");
+    check("the version list is filled from the daemon", false,
+      "the field was still a text input, so the list never arrived");
+  }
+
   await page.check('input[type="checkbox"]');
   await page.click('button:has-text("Создать")');
 

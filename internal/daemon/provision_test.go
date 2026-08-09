@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/collybia/mirocraft/internal/core"
 	"github.com/collybia/mirocraft/internal/gamefiles"
 	"github.com/collybia/mirocraft/internal/store"
 )
@@ -25,7 +27,7 @@ func TestTheManagedPortReachesTheFile(t *testing.T) {
 	p := &Provisioner{log: silent()}
 
 	srv := &store.Server{ID: "01TEST", Port: 25566}
-	if err := p.applyManagedProperties(srv, dir); err != nil {
+	if err := p.applyManagedConfig(serverCore{}, srv, dir); err != nil {
 		t.Fatalf("applyManagedProperties: %v", err)
 	}
 
@@ -55,7 +57,7 @@ func TestApplyingThePortKeepsEverythingElse(t *testing.T) {
 	}
 
 	p := &Provisioner{log: silent()}
-	if err := p.applyManagedProperties(&store.Server{ID: "01TEST", Port: 25570}, dir); err != nil {
+	if err := p.applyManagedConfig(serverCore{}, &store.Server{ID: "01TEST", Port: 25570}, dir); err != nil {
 		t.Fatalf("applyManagedProperties: %v", err)
 	}
 
@@ -87,7 +89,7 @@ func TestApplyingThePortTwiceChangesNothing(t *testing.T) {
 	p := &Provisioner{log: silent()}
 	srv := &store.Server{ID: "01TEST", Port: 25566}
 
-	if err := p.applyManagedProperties(srv, dir); err != nil {
+	if err := p.applyManagedConfig(serverCore{}, srv, dir); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
 	first, err := os.Stat(filepath.Join(dir, gamefiles.PropertiesName))
@@ -95,7 +97,7 @@ func TestApplyingThePortTwiceChangesNothing(t *testing.T) {
 		t.Fatalf("stat: %v", err)
 	}
 
-	if err := p.applyManagedProperties(srv, dir); err != nil {
+	if err := p.applyManagedConfig(serverCore{}, srv, dir); err != nil {
 		t.Fatalf("second apply: %v", err)
 	}
 	second, err := os.Stat(filepath.Join(dir, gamefiles.PropertiesName))
@@ -114,10 +116,29 @@ func TestNoPortMeansNoWrite(t *testing.T) {
 	dir := t.TempDir()
 	p := &Provisioner{log: silent()}
 
-	if err := p.applyManagedProperties(&store.Server{ID: "01TEST"}, dir); err != nil {
+	if err := p.applyManagedConfig(serverCore{}, &store.Server{ID: "01TEST"}, dir); err != nil {
 		t.Fatalf("applyManagedProperties: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, gamefiles.PropertiesName)); !os.IsNotExist(err) {
 		t.Errorf("a properties file was written for a server with no port: %v", err)
 	}
 }
+
+// serverCore is a provider that is a server, for the tests about the files a
+// server has and a proxy does not.
+type serverCore struct{}
+
+func (serverCore) ID() string            { return "test" }
+func (serverCore) Name() string          { return "Test" }
+func (serverCore) Kind() core.Kind       { return core.KindServer }
+func (serverCore) Runtime() core.Runtime { return core.RuntimeJava }
+func (serverCore) Content() core.Content { return core.Content{} }
+
+func (serverCore) Versions(context.Context) ([]core.Version, error) { return nil, nil }
+
+func (serverCore) Resolve(context.Context, string) (*core.Build, error) { return nil, nil }
+
+// proxyCore is the same for a proxy.
+type proxyCore struct{ serverCore }
+
+func (proxyCore) Kind() core.Kind { return core.KindProxy }

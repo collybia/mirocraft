@@ -54,6 +54,16 @@ type Server struct {
 	JarName  string   // server jar relative to Dir
 	JavaArgs []string // extra JVM flags, e.g. Aikar's
 
+	// StopCommand is what is written to the server's stdin to ask it to shut
+	// down. Empty means the runner's default.
+	//
+	// Per server rather than per runner: one runner runs both kinds at once,
+	// and a proxy does not understand "stop" — Velocity and BungeeCord take
+	// "end". Sending the wrong word means the graceful stop does nothing and
+	// the process is killed after the timeout, which for a Minecraft server
+	// is how a world gets rolled back.
+	StopCommand string
+
 	// LaunchArgs replaces "-jar <JarName> nogui" for cores that start another
 	// way. Forge and NeoForge start through an argument file their installer
 	// wrote, which lists a classpath of several hundred libraries — past what

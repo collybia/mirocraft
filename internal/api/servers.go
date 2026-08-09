@@ -638,6 +638,7 @@ func (a *API) startServer(ctx context.Context, server *store.Server) error {
 		}
 		launch.JarName = prepared.JarName
 		launch.LaunchArgs = prepared.Args
+		launch.StopCommand = prepared.StopCommand
 		launch.JavaBin = prepared.JavaBin
 		// Carried through even when the host has no runtime installed: the
 		// Docker runner picks its image from it.

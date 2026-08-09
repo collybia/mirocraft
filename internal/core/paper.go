@@ -34,6 +34,12 @@ type Paper struct {
 	// ServerKind distinguishes proxies from servers.
 	ServerKind Kind
 
+	// JavaFor decides the Java version a project version needs. Nil means the
+	// Minecraft version table, which is right for the servers and wrong for
+	// the proxies: Velocity is versioned on its own, so "3.5.1" tells that
+	// table nothing.
+	JavaFor func(version string) int
+
 	// BaseURL is overridable for tests.
 	BaseURL string
 	Client  *http.Client
@@ -155,7 +161,7 @@ func (p *Paper) Versions(ctx context.Context) ([]Version, error) {
 		out = append(out, Version{
 			ID:        id,
 			Channel:   channel,
-			JavaMajor: JavaMajorFor(id),
+			JavaMajor: p.javaFor(id),
 		})
 	}
 
@@ -235,8 +241,16 @@ func (p *Paper) Resolve(ctx context.Context, version string) (*Build, error) {
 		Checksum:  artifact.Checksums.SHA256,
 		Algorithm: AlgoSHA256,
 		SizeBytes: artifact.Size,
-		JavaMajor: JavaMajorFor(version),
+		JavaMajor: p.javaFor(version),
 	}, nil
+}
+
+// javaFor returns the Java version this project's version needs.
+func (p *Paper) javaFor(version string) int {
+	if p.JavaFor != nil {
+		return p.JavaFor(version)
+	}
+	return JavaMajorFor(version)
 }
 
 // project returns the project document, refreshing it when stale.
@@ -290,5 +304,17 @@ func DefaultRegistry(client *http.Client) *Registry {
 	r.Register(NewQuilt(client))
 	r.Register(NewForge(client))
 	r.Register(NewNeoForge(client))
+	r.Register(NewSponge(client))
+	r.Register(NewMohist(client))
+	r.Register(NewArclight(client))
+	// Last, because it is the slow one: choosing it means waiting for a
+	// compile rather than a download.
+	r.Register(NewSpigot(client))
+
+	// Proxies. Listed after the servers because a panel is used to create
+	// servers far more often than proxies.
+	r.Register(NewVelocity(client))
+	r.Register(NewBungeeCord(client))
+	r.Register(NewWaterfall(client))
 	return r
 }

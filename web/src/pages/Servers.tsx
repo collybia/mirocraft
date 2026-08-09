@@ -276,6 +276,13 @@ function CreateServerForm({ onCreated }: { onCreated: () => void }) {
         {versionsError && <p className="mt-1 text-xs text-warning">{versionsError}</p>}
       </div>
 
+      {cores.find((c) => c.id === core)?.builds_locally && (
+        <p className="text-xs text-warning sm:col-span-2">
+          Это ядро не раздаётся готовым — панель соберёт его на этой машине. Первый сервер такой
+          версии запустится минут через пятнадцать, следующие — сразу.
+        </p>
+      )}
+
       <div>
         <label className="mb-1 block text-sm text-muted" htmlFor="ram">
           Память, МБ

@@ -22,6 +22,19 @@ const (
 // client to poll the result, short enough that the map stays small.
 const taskRetention = 30 * time.Minute
 
+// TaskTimeout bounds one background task.
+//
+// Long because of what the longest one is: starting a Spigot server compiles
+// it, and BuildTools clones several repositories and decompiles Minecraft.
+// Measured at twenty minutes on this machine, with one dependency download
+// stalling for nine of them — and the ten minutes this used to allow killed
+// the task while the compile was still running, which made a Spigot server
+// impossible to start on any version not already built.
+//
+// A guard against a hung task rather than a budget: the operations that should
+// be quick have their own, much shorter timeouts closer to the work.
+const TaskTimeout = 45 * time.Minute
+
 // Task is an asynchronous operation a client can poll.
 type Task struct {
 	ID        string    `json:"id"`
@@ -74,7 +87,7 @@ func (reg *taskRegistry) start(kind, serverID, userID string, fn func(context.Co
 
 		// The task outlives the request that created it, so it gets a fresh
 		// context rather than the request's, which is cancelled on response.
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), TaskTimeout)
 		defer cancel()
 
 		err := fn(ctx)

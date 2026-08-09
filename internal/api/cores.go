@@ -18,6 +18,11 @@ type coreResponse struct {
 	// vanilla: a plugin dropped beside it is simply never read.
 	Loader     string `json:"loader,omitempty"`
 	ContentDir string `json:"content_dir,omitempty"`
+	// BuildsLocally says the first server on a version waits for a compile
+	// rather than a download. Spigot is the only one, and it is minutes
+	// rather than seconds: someone who picks it without being told thinks the
+	// panel has hung.
+	BuildsLocally bool `json:"builds_locally,omitempty"`
 }
 
 type coreVersionResponse struct {
@@ -42,13 +47,15 @@ func (a *API) handleListCores(w http.ResponseWriter, r *http.Request) {
 	items := make([]coreResponse, 0, len(providers))
 	for _, provider := range providers {
 		content := provider.Content()
+		_, buildsLocally := provider.(core.LocalBuilder)
 		items = append(items, coreResponse{
-			ID:         provider.ID(),
-			Name:       provider.Name(),
-			Kind:       string(provider.Kind()),
-			Runtime:    string(provider.Runtime()),
-			Loader:     content.Loader,
-			ContentDir: content.Dir,
+			ID:            provider.ID(),
+			Name:          provider.Name(),
+			Kind:          string(provider.Kind()),
+			Runtime:       string(provider.Runtime()),
+			Loader:        content.Loader,
+			ContentDir:    content.Dir,
+			BuildsLocally: buildsLocally,
 		})
 	}
 	writeJSON(w, http.StatusOK, listResponse[coreResponse]{Items: items})

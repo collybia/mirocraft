@@ -76,6 +76,9 @@ type Launch struct {
 	JavaBin string
 	// JavaMajor is the runtime's feature version, for logs and the API.
 	JavaMajor int
+	// StopCommand is the word this core shuts down on. A proxy takes "end"
+	// and ignores "stop", which would turn every graceful stop into a kill.
+	StopCommand string
 	// Build records what was installed.
 	Build *core.Build
 }
@@ -103,21 +106,18 @@ func (p *Provisioner) Prepare(ctx context.Context, srv *store.Server, dir string
 		return nil, fmt.Errorf("resolving %s %s: %w", srv.Core, srv.Version, err)
 	}
 
-	jarPath := filepath.Join(dir, ServerJarName)
-	if build.NeedsInstall() {
-		jarPath = filepath.Join(dir, InstallerJarName)
+	launch := &Launch{
+		JarName:     ServerJarName,
+		JavaMajor:   build.JavaMajor,
+		Build:       build,
+		StopCommand: core.StopCommandFor(provider.Kind()),
 	}
-	if err := p.ensureJar(ctx, build, jarPath); err != nil {
-		return nil, err
-	}
-
-	launch := &Launch{JarName: ServerJarName, JavaMajor: build.JavaMajor, Build: build}
 
 	// A host runtime is needed to run the server, or — even under Docker — to
 	// run an installer, which writes into the directory before any container
 	// exists.
 	installJava := ""
-	if !p.SkipHostJava || build.NeedsInstall() {
+	if !p.SkipHostJava || build.NeedsInstall() || build.NeedsBuild() {
 		runtime, err := p.Java.Ensure(ctx, build.JavaMajor)
 		if err != nil {
 			return nil, fmt.Errorf("preparing Java %d for %s %s: %w",
@@ -133,7 +133,15 @@ func (p *Provisioner) Prepare(ctx context.Context, srv *store.Server, dir string
 		}
 	}
 
-	// After the runtime is in place, because running an installer needs one.
+	// After the runtime, because compiling and installing both need one.
+	jarPath := filepath.Join(dir, ServerJarName)
+	if build.NeedsInstall() {
+		jarPath = filepath.Join(dir, InstallerJarName)
+	}
+	if err := p.ensureJar(ctx, build, jarPath, provider, installJava); err != nil {
+		return nil, err
+	}
+
 	if build.NeedsInstall() {
 		if err := p.runInstaller(ctx, provider, build, dir, installJava); err != nil {
 			return nil, err
@@ -157,7 +165,7 @@ func (p *Provisioner) Prepare(ctx context.Context, srv *store.Server, dir string
 	// the record says one port and the server listens on another, two servers
 	// created on different ports both bind 25565, and the second fails to
 	// start with an address already in use.
-	if err := p.applyManagedProperties(srv, dir); err != nil {
+	if err := p.applyManagedConfig(provider, srv, dir); err != nil {
 		return nil, err
 	}
 
@@ -174,9 +182,16 @@ func (p *Provisioner) Prepare(ctx context.Context, srv *store.Server, dir string
 // Run before every start rather than once at creation: an operator who edits
 // the file by hand, or restores a backup made on another port, would otherwise
 // leave the server listening somewhere the panel does not know about.
-func (p *Provisioner) applyManagedProperties(srv *store.Server, dir string) error {
+func (p *Provisioner) applyManagedConfig(provider core.Provider, srv *store.Server, dir string) error {
 	if srv.Port <= 0 {
 		return nil
+	}
+	if provider.Kind() == core.KindProxy {
+		// A proxy has no server.properties: it reads velocity.toml or
+		// config.yml, and where it listens is spelled differently in each.
+		// Writing a properties file it never opens would leave the port the
+		// panel published pointing at nothing.
+		return p.applyProxyPort(srv, dir)
 	}
 
 	properties, err := gamefiles.LoadProperties(dir)
@@ -209,10 +224,18 @@ func (p *Provisioner) applyManagedProperties(srv *store.Server, dir string) erro
 // directory is the operator's to mess with, and a hard link would mean
 // editing or replacing one server's jar silently changed every other server
 // on the same version.
-func (p *Provisioner) ensureJar(ctx context.Context, build *core.Build, jarPath string) error {
-	cached, err := p.Downloader.Fetch(ctx, build)
+func (p *Provisioner) ensureJar(ctx context.Context, build *core.Build, jarPath string, provider core.Provider, javaBin string) error {
+	var cached string
+	var err error
+	if build.NeedsBuild() {
+		// Nothing to download: this core does not exist as a published jar,
+		// so it is compiled here and the result cached like any other.
+		cached, err = p.buildLocally(ctx, provider, build, javaBin)
+	} else {
+		cached, err = p.Downloader.Fetch(ctx, build)
+	}
 	if err != nil {
-		return fmt.Errorf("downloading %s %s: %w", build.Core, build.Version, err)
+		return fmt.Errorf("obtaining %s %s: %w", build.Core, build.Version, err)
 	}
 
 	source, err := os.Stat(cached)

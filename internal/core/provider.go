@@ -73,6 +73,10 @@ const (
 	// directly does nothing useful, and what it writes into the directory is
 	// what actually gets started.
 	ArtifactInstaller Artifact = "installer"
+	// ArtifactSource means there is nothing to download: the jar is compiled
+	// on this machine. Spigot is the only one — SpigotMC cannot redistribute
+	// Mojang's code, so they ship a tool that assembles the server locally.
+	ArtifactSource Artifact = "source"
 	// ArtifactLauncher is a small jar that fetches the rest on first start.
 	// Fabric ships one of these — under two hundred kilobytes, and it needs
 	// the network the first time it runs.
@@ -116,6 +120,26 @@ func (b *Build) IsLauncher() bool { return b.Artifact == ArtifactLauncher }
 // NeedsInstall reports whether the download has to be executed before the
 // server exists.
 func (b *Build) NeedsInstall() bool { return b.Artifact == ArtifactInstaller }
+
+// NeedsBuild reports whether the jar has to be compiled on this machine.
+func (b *Build) NeedsBuild() bool { return b.Artifact == ArtifactSource }
+
+// LocalBuilder is implemented by a provider whose core is compiled rather than
+// downloaded.
+//
+// The compile happens once per Minecraft version and the result is cached like
+// any other artifact: it takes minutes and a gigabyte of scratch space, and
+// paying that per server would make the second Spigot server as slow as the
+// first.
+type LocalBuilder interface {
+	// Tool describes the downloadable program that does the compiling.
+	Tool(ctx context.Context) (*Build, error)
+	// BuildArgs are the arguments passed after -jar <tool>, run in a scratch
+	// directory.
+	BuildArgs(build *Build) []string
+	// Produced names the jar the tool leaves in that directory.
+	Produced(build *Build) string
+}
 
 // Installer is implemented by a provider whose download is an installer.
 //

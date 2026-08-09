@@ -833,6 +833,8 @@ export interface Core {
   /** Empty when the core takes no add-ons at all, as vanilla does. */
   loader?: string;
   content_dir?: string;
+  /** The first server on a version waits for a compile rather than a download. */
+  builds_locally?: boolean;
 }
 
 export interface CoreVersion {

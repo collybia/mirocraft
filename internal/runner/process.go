@@ -141,6 +141,10 @@ type process struct {
 	// as stopped rather than crashed.
 	stopping bool
 
+	// stopWord is what this server understands as "shut down", remembered
+	// from the record because Stop is called with an id and nothing else.
+	stopWord string
+
 	exited chan struct{} // closed once the process has exited and been reaped
 	wg     sync.WaitGroup
 }
@@ -198,13 +202,14 @@ func (r *ProcessRunner) Start(ctx context.Context, srv *Server) error {
 	}
 
 	p := &process{
-		id:     srv.ID,
-		hub:    NewHub(ConsoleBufferLines),
-		cmd:    cmd,
-		stdin:  stdin,
-		group:  group,
-		status: StatusStarting,
-		exited: make(chan struct{}),
+		id:       srv.ID,
+		stopWord: srv.StopCommand,
+		hub:      NewHub(ConsoleBufferLines),
+		cmd:      cmd,
+		stdin:    stdin,
+		group:    group,
+		status:   StatusStarting,
+		exited:   make(chan struct{}),
 	}
 
 	r.mu.Lock()
@@ -371,7 +376,11 @@ func (r *ProcessRunner) Stop(ctx context.Context, id string, timeout time.Durati
 	p.mu.Unlock()
 	p.setStatus(StatusStopping)
 
-	if _, err := io.WriteString(p.stdin, r.StopCommand+"\n"); err != nil {
+	word := p.stopWord
+	if word == "" {
+		word = r.StopCommand
+	}
+	if _, err := io.WriteString(p.stdin, word+"\n"); err != nil {
 		// stdin is already gone; go straight to killing the process.
 		r.log.Warn("writing stop command failed, killing instead",
 			slog.String("server_id", id), slog.String("error", err.Error()))

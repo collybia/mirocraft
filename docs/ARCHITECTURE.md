@@ -34,7 +34,15 @@
   - Vanilla/Snapshot — Mojang version manifest
   - Paper, Folia, Velocity, Waterfall — PaperMC API
   - Purpur — PurpurMC API; Pufferfish — сборки с их CI
-  - Spigot — BuildTools (сборка на месте, кэш результата; медленно — предупреждать в UI)
+  - Spigot — BuildTools (сборка на месте, кэш результата; медленно — предупреждать в UI).
+    Spigot не распространяется готовым jar и никогда не распространялся: это
+    republish кода Mojang. SpigotMC отдаёт инструмент, который собирает сервер
+    на машине, где он будет работать, — отсюда минуты вместо секунд и гигабайт
+    рабочего каталога. Собирается один раз на версию Minecraft, результат
+    кладётся в тот же кэш, что и скачанные ядра, поэтому второй сервер на той
+    же версии получает его мгновенно.
+    На Linux нужен git; на Windows BuildTools качает свой portable — проверка
+    это учитывает, иначе она отвергала бы сборку, которая работает.
   - Fabric, Quilt — их meta-API + installer
   - Forge, NeoForge — installer с промоушенами версий; запуск через run.sh/run.bat в новых версиях
   - Sponge, Mohist, Arclight — их API/CI
