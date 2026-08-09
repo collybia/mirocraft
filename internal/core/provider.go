@@ -68,6 +68,11 @@ const (
 	// ArtifactServer is a jar that is the server. Vanilla, Paper and their
 	// forks ship these: a few dozen megabytes that run offline.
 	ArtifactServer Artifact = "server"
+	// ArtifactInstaller is a jar that has to be executed to produce the
+	// server. Forge, NeoForge and Quilt ship these: running the download
+	// directly does nothing useful, and what it writes into the directory is
+	// what actually gets started.
+	ArtifactInstaller Artifact = "installer"
 	// ArtifactLauncher is a small jar that fetches the rest on first start.
 	// Fabric ships one of these — under two hundred kilobytes, and it needs
 	// the network the first time it runs.
@@ -107,6 +112,45 @@ type Build struct {
 
 // IsLauncher reports whether the first start of this build needs the network.
 func (b *Build) IsLauncher() bool { return b.Artifact == ArtifactLauncher }
+
+// NeedsInstall reports whether the download has to be executed before the
+// server exists.
+func (b *Build) NeedsInstall() bool { return b.Artifact == ArtifactInstaller }
+
+// Installer is implemented by a provider whose download is an installer.
+//
+// Kept off Provider because most cores are not like this, and an interface
+// every implementation has to satisfy with an empty method is an interface
+// that teaches the reader nothing.
+type Installer interface {
+	// InstallArgs are the arguments passed after -jar <downloaded installer>,
+	// with the server directory as the working directory.
+	InstallArgs(build *Build) []string
+}
+
+// The operating systems a server can be launched under.
+//
+// Not the host's: when Docker is the runner the server runs inside a Linux
+// container whatever the host is, and the launch arguments differ between the
+// two. Passing it explicitly is what keeps that from being guessed wrong.
+const (
+	TargetLinux   = "linux"
+	TargetWindows = "windows"
+)
+
+// Launcher is implemented by a provider whose server does not start with
+// -jar server.jar.
+//
+// Modern Forge and NeoForge start through an argument file the installer
+// wrote, which lists a classpath of several hundred libraries — far past what
+// a command line holds on Windows, which is why they stopped shipping a
+// runnable jar in the first place.
+type Launcher interface {
+	// LaunchArgs returns the arguments that follow the JVM flags, replacing
+	// the usual -jar server.jar nogui. dir is the server directory and
+	// targetOS is the system the server will run under.
+	LaunchArgs(dir string, build *Build, targetOS string) ([]string, error)
+}
 
 // Verifiable reports whether upstream published a checksum for this build.
 func (b *Build) Verifiable() bool {

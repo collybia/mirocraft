@@ -287,5 +287,8 @@ func DefaultRegistry(client *http.Client) *Registry {
 	r.Register(NewPufferfish(client))
 	r.Register(NewFolia(client))
 	r.Register(NewFabric(client))
+	r.Register(NewQuilt(client))
+	r.Register(NewForge(client))
+	r.Register(NewNeoForge(client))
 	return r
 }

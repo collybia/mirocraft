@@ -637,14 +637,17 @@ func (a *API) startServer(ctx context.Context, server *store.Server) error {
 			return err
 		}
 		launch.JarName = prepared.JarName
+		launch.LaunchArgs = prepared.Args
 		launch.JavaBin = prepared.JavaBin
 		// Carried through even when the host has no runtime installed: the
 		// Docker runner picks its image from it.
 		launch.JavaMajor = prepared.JavaMajor
 
 		// Remembered so the panel can show what is actually installed, and so
-		// a later start knows the jar without asking upstream again.
-		if server.JarName != prepared.JarName {
+		// a later start knows the jar without asking upstream again. Cores
+		// that start through an argument file have no jar to remember, and
+		// storing an empty name would lose the one already recorded.
+		if prepared.JarName != "" && server.JarName != prepared.JarName {
 			server.JarName = prepared.JarName
 			if err := a.store.Servers.Update(ctx, server); err != nil {
 				a.log.Warn("recording the installed jar failed",

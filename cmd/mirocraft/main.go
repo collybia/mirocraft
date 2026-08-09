@@ -105,6 +105,12 @@ func run(parent context.Context) error {
 	// A container brings its own Java, so downloading 110 MB of JRE onto the
 	// host to run a server that will never touch it is pure waste.
 	provisioner.SkipHostJava = selected.docker != nil
+	if selected.docker != nil {
+		// The server runs in a Linux container whatever this host is, and
+		// Forge's argument files differ between the two. Deriving it from the
+		// host would hand a Windows argument file to a Linux container.
+		provisioner.TargetOS = core.TargetLinux
+	}
 	backups := backup.NewManager(filepath.Join(cfg.DataDir, "backups"), log)
 
 	// The add-on catalogue identifies itself to Modrinth with this build's

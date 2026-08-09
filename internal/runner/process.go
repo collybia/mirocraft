@@ -34,7 +34,7 @@ type CommandBuilder func(srv *Server) (name string, args []string, err error)
 // DefaultCommandBuilder builds the standard `java -Xms -Xmx -jar <jar> nogui`
 // invocation.
 func DefaultCommandBuilder(srv *Server) (string, []string, error) {
-	if srv.JarName == "" {
+	if srv.JarName == "" && len(srv.LaunchArgs) == 0 {
 		return "", nil, errors.New("server jar is not set")
 	}
 	java := srv.JavaBin
@@ -52,6 +52,9 @@ func DefaultCommandBuilder(srv *Server) (string, []string, error) {
 	}
 	args = append(args, EncodingArgs()...)
 	args = append(args, srv.JavaArgs...)
+	if len(srv.LaunchArgs) > 0 {
+		return java, append(args, srv.LaunchArgs...), nil
+	}
 	args = append(args, "-jar", srv.JarName, "nogui")
 	return java, args, nil
 }

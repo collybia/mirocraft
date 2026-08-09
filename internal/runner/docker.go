@@ -300,6 +300,9 @@ func containerCommand(srv *Server) []string {
 	}
 	cmd = append(cmd, EncodingArgs()...)
 	cmd = append(cmd, srv.JavaArgs...)
+	if len(srv.LaunchArgs) > 0 {
+		return append(cmd, srv.LaunchArgs...)
+	}
 	return append(cmd, "-jar", jar, "nogui")
 }
 

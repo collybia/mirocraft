@@ -54,6 +54,13 @@ type Server struct {
 	JarName  string   // server jar relative to Dir
 	JavaArgs []string // extra JVM flags, e.g. Aikar's
 
+	// LaunchArgs replaces "-jar <JarName> nogui" for cores that start another
+	// way. Forge and NeoForge start through an argument file their installer
+	// wrote, which lists a classpath of several hundred libraries — past what
+	// a Windows command line holds, which is why they stopped shipping a
+	// runnable jar at all.
+	LaunchArgs []string
+
 	// Port is the port the server listens on. ProcessRunner does not need it —
 	// the server reads it from server.properties and binds the host directly —
 	// but a container has its own network stack, so DockerRunner has to

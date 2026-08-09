@@ -39,7 +39,18 @@ type Provisioner struct {
 	// SkipHostJava stops the host runtime being downloaded. Set when servers
 	// run in containers: the image brings its own Java, so fetching 110 MB of
 	// JRE onto the host for a server that will never touch it is pure waste.
+	//
+	// Cores that ship an installer are the exception, and a deliberate one:
+	// the installer writes into the server directory before any container
+	// exists, so it has to run on the host. Such a server pays for a host
+	// runtime once; every other server under Docker still pays nothing.
 	SkipHostJava bool
+
+	// TargetOS is the system servers will run under, "linux" or "windows".
+	// Empty means this host's. Set to linux when Docker is the runner: the
+	// server runs in a container whatever the host is, and Forge's argument
+	// files differ between the two.
+	TargetOS string
 
 	log *slog.Logger
 }
@@ -54,8 +65,13 @@ func NewProvisioner(cores *core.Registry, downloader *core.Downloader, javaMgr *
 
 // Launch is what a server needs in order to start.
 type Launch struct {
-	// JarName is the jar to run, relative to the server directory.
+	// JarName is the jar to run, relative to the server directory. Empty when
+	// Args says how to start instead.
 	JarName string
+	// Args replaces the usual "-jar server.jar nogui" for cores that start
+	// another way — Forge and NeoForge start through an argument file the
+	// installer wrote. Empty means the usual invocation.
+	Args []string
 	// JavaBin is the absolute path to the java executable.
 	JavaBin string
 	// JavaMajor is the runtime's feature version, for logs and the API.
@@ -88,23 +104,52 @@ func (p *Provisioner) Prepare(ctx context.Context, srv *store.Server, dir string
 	}
 
 	jarPath := filepath.Join(dir, ServerJarName)
+	if build.NeedsInstall() {
+		jarPath = filepath.Join(dir, InstallerJarName)
+	}
 	if err := p.ensureJar(ctx, build, jarPath); err != nil {
 		return nil, err
 	}
 
 	launch := &Launch{JarName: ServerJarName, JavaMajor: build.JavaMajor, Build: build}
 
-	if !p.SkipHostJava {
+	// A host runtime is needed to run the server, or — even under Docker — to
+	// run an installer, which writes into the directory before any container
+	// exists.
+	installJava := ""
+	if !p.SkipHostJava || build.NeedsInstall() {
 		runtime, err := p.Java.Ensure(ctx, build.JavaMajor)
 		if err != nil {
 			return nil, fmt.Errorf("preparing Java %d for %s %s: %w",
 				build.JavaMajor, srv.Core, srv.Version, err)
 		}
-		launch.JavaBin = runtime.Bin
-		// The installed runtime wins over the table: it is what will actually
-		// run, and the two can differ where the panel installs a newer version
-		// than the minimum.
-		launch.JavaMajor = runtime.Major
+		installJava = runtime.Bin
+		if !p.SkipHostJava {
+			launch.JavaBin = runtime.Bin
+			// The installed runtime wins over the table: it is what will
+			// actually run, and the two can differ where the panel installs a
+			// newer version than the minimum.
+			launch.JavaMajor = runtime.Major
+		}
+	}
+
+	// After the runtime is in place, because running an installer needs one.
+	if build.NeedsInstall() {
+		if err := p.runInstaller(ctx, provider, build, dir, installJava); err != nil {
+			return nil, err
+		}
+	}
+
+	if launcher, ok := provider.(core.Launcher); ok {
+		args, err := launcher.LaunchArgs(dir, build, p.targetOS())
+		if err != nil {
+			return nil, fmt.Errorf("working out how to start %s %s: %w", srv.Core, srv.Version, err)
+		}
+		launch.Args = args
+		// The jar name is cleared so nothing downstream falls back to running
+		// a jar that is not the server: for these cores server.jar is the
+		// installer, and running it again would reinstall rather than start.
+		launch.JarName = ""
 	}
 
 	// The panel refuses to let anyone edit server-port through the settings
