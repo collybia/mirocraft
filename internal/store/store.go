@@ -35,6 +35,7 @@ type Store struct {
 	Webhooks     *WebhookRepo
 	CustomThemes *CustomThemeRepo
 	Audit        *AuditRepo
+	Integrations *IntegrationRepo
 }
 
 // Open opens (or creates) the database at path and applies pending migrations.
@@ -79,6 +80,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	s.Webhooks = &WebhookRepo{db: db}
 	s.CustomThemes = &CustomThemeRepo{db: db}
 	s.Audit = &AuditRepo{db: db}
+	s.Integrations = &IntegrationRepo{db: db}
 
 	if err := s.migrate(ctx); err != nil {
 		_ = db.Close()

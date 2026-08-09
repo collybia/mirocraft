@@ -361,6 +361,16 @@ func (a *API) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Acting for other people is an operator's decision about a bot, not
+	// something a user grants themselves. Checked separately because admin:*
+	// would otherwise sweep it up on any admin's own token, and because a
+	// token holding it can reach every linked account.
+	for _, scope := range req.Scopes {
+		if scope == ScopeIntegrationsAct && !principal.IsAdmin() {
+			writeFieldError(w, "scopes", "only an administrator can grant "+ScopeIntegrationsAct)
+			return
+		}
+	}
 	if req.ExpiresAt != nil && !req.ExpiresAt.After(time.Now()) {
 		writeFieldError(w, "expires_at", "expiry must be in the future")
 		return

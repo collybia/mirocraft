@@ -76,6 +76,8 @@ tags:
     description: шина событий и вебхуки
   - name: tasks
     description: асинхронные операции
+  - name: integrations
+    description: привязка аккаунтов Discord и Telegram
 
 security:
   - bearerAuth: []
@@ -1360,6 +1362,121 @@ paths:
 
   # --- dns ---
 
+  /integrations:
+    get:
+      tags: [integrations]
+      summary: Привязанные аккаунты
+      description: |
+        Что у этой учётной записи привязано. Пусто — значит бот не знает, чьи
+        серверы показывать этому человеку в чате.
+      responses:
+        "200":
+          description: список привязок
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Integration" }
+
+  /integrations/{provider}/code:
+    post:
+      tags: [integrations]
+      summary: Выдать одноразовый код привязки
+      description: |
+        Код показывается один раз и хранится только хэшем. Человек переносит
+        его в чат и отправляет боту.
+
+        Живёт десять минут и сгорает при первом использовании: этих двух
+        свойств достаточно, чтобы восемь символов не имело смысла угадывать.
+        Новый код заменяет предыдущий — тот, кто просит второй, почти наверняка
+        потерял первый, и держать оба живыми значит удваивать число ключей
+        просто так.
+
+        Недоступно боту: код должен просить человек из панели, иначе бот сможет
+        привязать к нему второй чат-аккаунт.
+      parameters:
+        - $ref: "#/components/parameters/Provider"
+      responses:
+        "201":
+          description: код выдан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: string, example: A7K2-9QXR }
+                  expires_at: { type: string, format: date-time }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /integrations/{provider}/link:
+    post:
+      tags: [integrations]
+      summary: Обменять код на привязку
+      description: |
+        Вызывает бот своим токеном со скоупом `integrations:act`, передавая код,
+        который человек написал в чате, и id этого чат-аккаунта.
+
+        Код сгорает независимо от того, удалась привязка или нет: код,
+        переживающий неудачную попытку, можно перебирать.
+      parameters:
+        - $ref: "#/components/parameters/Provider"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, external_id]
+              properties:
+                code: { type: string, example: A7K2-9QXR }
+                external_id:
+                  type: string
+                  description: id аккаунта на стороне чата, как его пишет сама платформа
+                  example: "31337"
+      responses:
+        "201":
+          description: привязано
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  provider: { type: string, enum: [discord, telegram] }
+                  external_id: { type: string }
+                  user_id: { type: string }
+                  email: { type: string }
+        "400":
+          description: код неизвестен, истёк или уже использован
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: этот чат-аккаунт уже привязан к другому пользователю
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /integrations/{provider}:
+    delete:
+      tags: [integrations]
+      summary: Отвязать аккаунт
+      description: |
+        Доступно и боту от имени привязанного: сказать «забудь меня» человек
+        должен уметь из того же чата, не открывая панель.
+      parameters:
+        - $ref: "#/components/parameters/Provider"
+      responses:
+        "204": { description: отвязано }
+        "404":
+          description: привязки нет
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /dns:
     get:
       tags: [dns]
@@ -1691,6 +1808,11 @@ components:
       description: Сессионный или API-токен.
 
   parameters:
+    Provider:
+      name: provider
+      in: path
+      required: true
+      schema: { type: string, enum: [discord, telegram] }
     PathID:
       name: id
       in: path
@@ -2125,6 +2247,15 @@ components:
         last_attempt_at: { type: string, format: date-time, nullable: true }
         last_success_at: { type: string, format: date-time, nullable: true }
         failure_count: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    Integration:
+      type: object
+      properties:
+        provider: { type: string, enum: [discord, telegram] }
+        external_id:
+          type: string
+          description: id аккаунта на стороне чата
         created_at: { type: string, format: date-time }
 
     DNSStatus:

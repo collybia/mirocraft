@@ -20,7 +20,11 @@ const (
 	ScopeFilesWrite     = "files:write"
 	ScopeBackupsRead    = "backups:read"
 	ScopeBackupsWrite   = "backups:write"
-	ScopeAdminAll       = "admin:*"
+	// ScopeIntegrationsAct lets a token act for a linked chat account. It
+	// grants nothing on its own: what a delegated request may do comes from
+	// the person it acts for, capped by DelegatableScopes.
+	ScopeIntegrationsAct = "integrations:act"
+	ScopeAdminAll        = "admin:*"
 )
 
 // AllScopes is every scope a token may hold, used to validate requests and to
@@ -28,7 +32,7 @@ const (
 var AllScopes = []string{
 	ScopeServersRead, ScopeServersWrite, ScopeServersPower, ScopeServersConsole,
 	ScopeFilesRead, ScopeFilesWrite, ScopeBackupsRead, ScopeBackupsWrite,
-	ScopeAdminAll,
+	ScopeIntegrationsAct, ScopeAdminAll,
 }
 
 // Roles.
@@ -44,6 +48,11 @@ type Principal struct {
 	Role    string
 	Scopes  []string
 	TokenID string
+
+	// Delegate is set when a bot made this request for someone else. Nil for
+	// an ordinary request, which is how handlers tell the two apart without
+	// asking every caller to care.
+	Delegate *Delegation
 }
 
 // HasScope reports whether the principal may perform an action. admin:* grants
@@ -219,12 +228,16 @@ func validateScopes(scopes []string) error {
 // scopesForRole returns the scopes a session token gets. Admins get admin:*,
 // which subsumes everything; regular users get everything but that.
 func scopesForRole(role string) []string {
-	if role == RoleAdmin {
-		return append([]string{}, AllScopes...)
-	}
-	scopes := make([]string, 0, len(AllScopes)-1)
+	scopes := make([]string, 0, len(AllScopes))
 	for _, s := range AllScopes {
-		if s == ScopeAdminAll {
+		// Never on a session token, whatever the role. Acting for someone
+		// else is a thing an operator hands to a bot deliberately, by minting
+		// an API token that says so; a browser session that carried it would
+		// let anyone logged in impersonate anyone who linked a chat account.
+		if s == ScopeIntegrationsAct {
+			continue
+		}
+		if s == ScopeAdminAll && role != RoleAdmin {
 			continue
 		}
 		scopes = append(scopes, s)

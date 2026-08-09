@@ -272,6 +272,10 @@ func (a *API) authedRoutes() map[string]http.HandlerFunc {
 		"POST /api/v1/servers/{id}/backups":                 a.handleCreateBackup,
 		"GET /api/v1/servers/{id}/backups/schedule":         a.handleGetSchedule,
 		"PUT /api/v1/servers/{id}/backups/schedule":         a.handlePutSchedule,
+		"GET /api/v1/integrations":                          a.handleListIntegrations,
+		"POST /api/v1/integrations/{provider}/code":         a.handleCreateLinkCode,
+		"POST /api/v1/integrations/{provider}/link":         a.handleRedeemLink,
+		"DELETE /api/v1/integrations/{provider}":            a.handleUnlink,
 		"GET /api/v1/dns":                                   a.handleDNSStatus,
 		"GET /api/v1/tls":                                   a.handleTLSStatus,
 		"GET /api/v1/catalog/search":                        a.handleCatalogSearch,
@@ -381,14 +385,20 @@ func (a *API) Handler() http.Handler {
 		mux.Handle(pattern, chain(handler,
 			a.rateLimit(a.limiter, tokenKey),
 			a.authenticate,
+			// After authenticate, because it rewrites the principal that
+			// authenticate established.
+			a.withDelegation,
 		))
 	}
 
-	// Admin.
+	// Admin. Delegation is refused rather than applied: a chat bot has no
+	// business administering accounts, and letting the header through would
+	// mean an admin who linked their Discord had handed the bot their role.
 	for pattern, handler := range a.adminRoutes() {
 		mux.Handle(pattern, chain(handler,
 			a.rateLimit(a.limiter, tokenKey),
 			a.authenticate,
+			a.refuseDelegation,
 			a.requireAdmin,
 		))
 	}
