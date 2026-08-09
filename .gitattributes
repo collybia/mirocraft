@@ -5,6 +5,10 @@
 # the real cause. The installer is edited on Windows often enough that this
 # has already happened once.
 *.sh text eol=lf
+# PowerShell 5.1 reads a file without a byte-order mark as ANSI, which mangles
+# every Cyrillic string in it and produces parse errors that point at the
+# wrong line. The mark is content, so the file is left alone here.
+*.ps1 -text
 Makefile text eol=lf
 
 # Go and web sources are normalised too, so a diff is about the change.

@@ -37,13 +37,16 @@ import (
 var version = "dev"
 
 func main() {
-	if err := run(); err != nil {
+	// Under the Windows service control manager this hands control to it and
+	// calls run with a context the manager can cancel. Everywhere else, and in
+	// a console on Windows, it just calls run.
+	if err := runUnderServiceManager(run); err != nil {
 		fmt.Fprintln(os.Stderr, "mirocraft:", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(parent context.Context) error {
 	var (
 		configPath  = flag.String("config", "", "path to the configuration file")
 		addr        = flag.String("addr", "", "address the API listens on (overrides the config)")
@@ -203,7 +206,10 @@ func run() error {
 		IdleTimeout: 120 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// Derived from the caller's context, so a service stop and a Ctrl+C both
+	// end up here: the service manager cancels the parent, and the signals are
+	// what an operator running it in a terminal sends.
+	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	// Obtained before the listener opens: serving HTTPS with no certificate
