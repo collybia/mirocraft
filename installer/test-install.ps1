@@ -54,13 +54,17 @@ function Remove-Everything {
 }
 
 function Invoke-Installer {
-    param([string[]]$ExtraArgs = @())
+    param([string[]]$ExtraArgs = @(), [switch]$WithoutBinary)
 
     $arguments = @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass',
         '-File', (Join-Path $PSScriptRoot 'install.ps1'),
-        '-AssumeYes',
-        '-Binary', $Binary,
+        '-AssumeYes'
+    )
+    if (-not $WithoutBinary) {
+        $arguments += @('-Binary', $Binary)
+    }
+    $arguments += @(
         '-InstallDir', (Join-Path $Scratch 'bin'),
         '-ConfigDir', (Join-Path $Scratch 'config'),
         '-ServiceName', $ServiceName,
@@ -91,6 +95,38 @@ public class MirocraftTestCerts : ICertificatePolicy {
     catch {
         return ''
     }
+}
+
+# Путь, которым идёт настоящий оператор: локального файла нет, установщик
+# скачивает релиз и сверяет его. Релиз раскладывается на диске и отдаётся по
+# file://, чтобы тест не зависел от опубликованного релиза — проверяется своя
+# загрузка и своя сверка суммы, а не доступность GitHub.
+function Test-DownloadPath {
+    $release = Join-Path $Scratch 'release'
+    New-Item -ItemType Directory -Force -Path $release | Out-Null
+
+    $asset = 'mirocraft-windows-amd64.exe'
+    $target = Join-Path $release $asset
+    Copy-Item $Binary $target -Force
+
+    $hash = (Get-FileHash -Path $target -Algorithm SHA256).Hash.ToLowerInvariant()
+    Set-Content -Path (Join-Path $release 'SHA256SUMS') -Value "$hash  $asset" -Encoding ascii
+
+    $base = 'file:///' + ($release -replace '\\', '/')
+
+    $output = Invoke-Installer -ExtraArgs @('-BaseUrl', $base) -WithoutBinary
+    Test-Check 'установщик ставит из релиза' ($output -match 'Контрольная сумма сошлась') $output
+
+    # И вторая половина: файл, который не сошёлся, ставиться не должен. Сверка,
+    # которую видели только успешной, неотличима от её отсутствия.
+    Add-Content -Path $target -Value 'tampered' -Encoding ascii
+    $bad = Invoke-Installer -ExtraArgs @('-BaseUrl', $base) -WithoutBinary
+    Test-Check 'подменённый файл отвергнут' ($bad -match 'Контрольная сумма не совпала') $bad
+
+    # И отказ ничего не сломал: работает то, что было установлено до него.
+    $intact = ((Get-Service $ServiceName -ErrorAction SilentlyContinue).Status -eq 'Running') -and
+              ((Get-PanelHealth) -match '"status":"ok"')
+    Test-Check 'отказ не тронул рабочую установку' $intact
 }
 
 function Main {
@@ -171,6 +207,10 @@ function Main {
         Test-Check 'служба работает после обновления' `
             ((Get-Service $ServiceName -ErrorAction SilentlyContinue).Status -eq 'Running')
         Test-Check 'панель отвечает после обновления' ((Get-PanelHealth) -match '"status":"ok"')
+
+        # --- загрузка релиза ---
+
+        Test-DownloadPath
 
         # --- удаление ---
 

@@ -199,8 +199,46 @@ run_for_image() {
         "$(yes_no 'test -f /etc/mirocraft/EDITED-BY-OPERATOR')"
     check "the service is running after the upgrade" "$(yes_no 'systemctl is-active --quiet mirocraft')"
 
+    check_download_path
+
     stop_container
     trap - EXIT
+}
+
+# The path every real operator takes: no local binary, so the installer
+# downloads a release and verifies it. Served from inside the container so the
+# test does not depend on a published release — what is being checked is the
+# installer's own download and checksum handling, not GitHub's uptime.
+check_download_path() {
+    in_container 'mkdir -p /srv/release && cp /tmp/mirocraft /srv/release/mirocraft-linux-$(dpkg --print-architecture) && cd /srv/release && sha256sum mirocraft-* > SHA256SUMS' >/dev/null
+
+    # setsid, because a server started through docker exec dies with the exec
+    # when the command returns.
+    in_container 'cd /srv/release && setsid python3 -m http.server 8099 >/dev/null 2>&1 < /dev/null &' >/dev/null 2>&1 || true
+    in_container 'for i in $(seq 1 20); do curl -fsS http://127.0.0.1:8099/SHA256SUMS >/dev/null 2>&1 && break; sleep 1; done' >/dev/null 2>&1 || true
+
+    local output
+    output="$(docker exec -e MIROCRAFT_ASSUME_YES=1 -e MIROCRAFT_BASE_URL=http://127.0.0.1:8099 \
+        "${CONTAINER}" bash /tmp/install.sh 2>&1)" || output="FAILED: ${output}"
+    check "the installer can install from a release" \
+        "$(printf '%s' "${output}" | grep -q 'Контрольная сумма сошлась' && echo yes || echo no)" \
+        "$(printf '%s' "${output}" | tail -3)"
+
+    # And the half that matters: a file that does not match must not be
+    # installed. A checksum check that has only ever been seen to pass is
+    # indistinguishable from no checksum check at all.
+    in_container 'printf tampered >> /srv/release/mirocraft-linux-$(dpkg --print-architecture)' >/dev/null
+    local rejected="no"
+    if ! output="$(docker exec -e MIROCRAFT_ASSUME_YES=1 -e MIROCRAFT_BASE_URL=http://127.0.0.1:8099 \
+        "${CONTAINER}" bash /tmp/install.sh 2>&1)"; then
+        printf '%s' "${output}" | grep -q 'Контрольная сумма не совпала' && rejected="yes"
+    fi
+    check "a tampered download is refused" "${rejected}"
+
+    # The refusal must also have changed nothing: the binary that was already
+    # installed is still the one running.
+    check "the refusal left the working install alone" \
+        "$(yes_no 'systemctl is-active --quiet mirocraft && curl -fsk https://127.0.0.1:8080/api/v1/health | grep -q ok')"
 }
 
 main() {

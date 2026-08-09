@@ -34,6 +34,12 @@ param(
 
     [string]$Version = 'latest',
 
+    # Откуда берутся файлы релиза. Переопределяется для приватного зеркала и
+    # для автотеста, который поднимает свой релиз, чтобы загрузка и сверка
+    # контрольной суммы проверялись, а не предполагались. Файлы ожидаются по
+    # этому адресу по именам, рядом с SHA256SUMS.
+    [string]$BaseUrl,
+
     [switch]$AssumeYes,
 
     [switch]$Uninstall,
@@ -129,36 +135,106 @@ function Select-Mode {
 
 # --- бинарник ---------------------------------------------------------------
 
+# Сверяет скачанный файл с SHA256SUMS релиза.
+#
+# Скрипт работает от администратора, а скачанный файл станет службой, поэтому
+# «пришло по TLS» — это не весь ответ: не тот релиз, обрубок, который прокси
+# отдал с кодом 200, или чьё-то зеркало выглядят как удачная загрузка. Релиз
+# без SHA256SUMS не ставится: установщик, который пропускает проверку, когда
+# файла нет, — это установщик, у которого проверка не срабатывает никогда.
+function Assert-Checksum {
+    param([string]$Path, [string]$Asset, [string]$SumsUrl)
+
+    # Кандидат удаляется перед каждым отказом: он не проверен, а непроверенный
+    # бинарник во временном каталоге — это тот, который кто-нибудь запустит
+    # руками позже.
+    $sums = ''
+    try {
+        $raw = (Invoke-WebRequest -Uri $SumsUrl -UseBasicParsing).Content
+        # По HTTP приходит строка, а по file:// (зеркало на диске) — байты.
+        $sums = if ($raw -is [byte[]]) { [Text.Encoding]::UTF8.GetString($raw) } else { [string]$raw }
+    }
+    catch {
+        Remove-Item $Path -Force -ErrorAction SilentlyContinue
+        Stop-WithError "Не удалось скачать SHA256SUMS — не могу проверить, что скачался нужный файл"
+    }
+
+    $expected = ''
+    foreach ($line in ($sums -split "`n")) {
+        $parts = ($line.Trim() -split '\s+', 2)
+        if ($parts.Count -eq 2 -and $parts[1].TrimStart('*') -eq $Asset) {
+            $expected = $parts[0]
+            break
+        }
+    }
+    if (-not $expected) {
+        Remove-Item $Path -Force -ErrorAction SilentlyContinue
+        Stop-WithError "В SHA256SUMS нет строки для $Asset"
+    }
+
+    $actual = (Get-FileHash -Path $Path -Algorithm SHA256).Hash
+    if ($actual -ne $expected.ToUpperInvariant()) {
+        Remove-Item $Path -Force -ErrorAction SilentlyContinue
+        Stop-WithError "Контрольная сумма не совпала для ${Asset}: ожидалась $expected, получилась $actual"
+    }
+    Write-Ok 'Контрольная сумма сошлась'
+}
+
+# Достаёт бинарник и убеждается, что это он, ничего ещё не меняя на машине.
+#
+# Отдельно от установки и до неё, потому что установка начинается с остановки
+# службы: обновление, сорвавшееся на загрузке или на контрольной сумме, должно
+# оставить оператора с работающей панелью, а не с остановленной.
+#
+# Возвращает путь к готовому файлу и признак того, что файл временный.
+function Resolve-BinarySource {
+    if ($Binary) {
+        if (-not (Test-Path $Binary)) { Stop-WithError "Файл не найден: $Binary" }
+        return @{ Path = $Binary; Temporary = $false }
+    }
+
+    $arch  = Get-Architecture
+    $asset = "mirocraft-windows-$arch.exe"
+    $base  = if ($BaseUrl) {
+        $BaseUrl.TrimEnd('/')
+    } elseif ($Version -eq 'latest') {
+        "https://github.com/$Repo/releases/latest/download"
+    } else {
+        "https://github.com/$Repo/releases/download/$Version"
+    }
+    $url = "$base/$asset"
+
+    Write-Step "Скачиваю $url"
+    # Во временный файл: оборванная загрузка не должна оставить обрубок там,
+    # где лежал рабочий бинарник.
+    $temp = [IO.Path]::GetTempFileName()
+    try {
+        Invoke-WebRequest -Uri $url -OutFile $temp -UseBasicParsing
+    }
+    catch {
+        Remove-Item $temp -Force -ErrorAction SilentlyContinue
+        Stop-WithError "Не удалось скачать бинарник: $($_.Exception.Message)"
+    }
+
+    Assert-Checksum -Path $temp -Asset $asset -SumsUrl "$base/SHA256SUMS"
+
+    return @{ Path = $temp; Temporary = $true }
+}
+
 function Install-Binary {
+    param([hashtable]$Source)
+
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
-    if ($Binary) {
-        Write-Step "Устанавливаю бинарник из $Binary"
-        if (-not (Test-Path $Binary)) { Stop-WithError "Файл не найден: $Binary" }
-        Copy-Item -Path $Binary -Destination $BinPath -Force
+    Write-Step 'Устанавливаю бинарник'
+    try {
+        Copy-Item -Path $Source.Path -Destination $BinPath -Force
     }
-    else {
-        $arch = Get-Architecture
-        $url = if ($Version -eq 'latest') {
-            "https://github.com/$Repo/releases/latest/download/mirocraft-windows-$arch.exe"
-        } else {
-            "https://github.com/$Repo/releases/download/$Version/mirocraft-windows-$arch.exe"
-        }
-
-        Write-Step "Скачиваю $url"
-        # Во временный файл: оборванная загрузка не должна оставить обрубок
-        # там, где лежал рабочий бинарник.
-        $temp = [IO.Path]::GetTempFileName()
-        try {
-            Invoke-WebRequest -Uri $url -OutFile $temp -UseBasicParsing
-            Copy-Item -Path $temp -Destination $BinPath -Force
-        }
-        catch {
-            Stop-WithError "Не удалось скачать бинарник: $($_.Exception.Message)"
-        }
-        finally {
-            Remove-Item $temp -ErrorAction SilentlyContinue
-        }
+    catch {
+        Stop-WithError "Не удалось записать $BinPath : $($_.Exception.Message)"
+    }
+    finally {
+        if ($Source.Temporary) { Remove-Item $Source.Path -Force -ErrorAction SilentlyContinue }
     }
 
     $reported = & $BinPath --version 2>$null
@@ -302,14 +378,31 @@ function Protect-ConfigFile {
 
 # --- служба -----------------------------------------------------------------
 
-function Install-Service {
+# Останавливает работающую установку перед тем, как трогать бинарник.
+#
+# Отдельно от Install-Service и до него: Windows держит файл запущенной
+# программы, и запись поверх exe работающей службы не проходит вовсе. На Linux
+# это сходит с рук, поэтому порядок шагов легко списать с install.sh и
+# получить установщик, который работает ровно один раз — на чистой машине.
+function Stop-ExistingService {
     $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if ($existing) {
-        Write-Step 'Останавливаю службу для обновления'
-        if ($existing.Status -ne 'Stopped') {
-            Stop-Service -Name $ServiceName -Force
-            $existing.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
-        }
+    if (-not $existing -or $existing.Status -eq 'Stopped') { return }
+
+    Write-Step 'Останавливаю службу для обновления'
+    try {
+        Stop-Service -Name $ServiceName -Force -ErrorAction Stop
+        $existing.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(60))
+    }
+    catch {
+        # Служба, помеченная на удаление, ещё видна, но уже не открывается.
+        # Это не повод прекращать установку: если файл при этом кем-то занят,
+        # об этом скажет запись бинарника, и скажет понятнее.
+        Write-Warn "Не удалось остановить службу: $($_.Exception.Message)"
+    }
+}
+
+function Install-Service {
+    if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
         # Пересоздаётся всегда: параметры запуска принадлежат установщику, и
         # обновление, которому нужен новый флаг, должно его получить.
         & sc.exe delete $ServiceName | Out-Null
@@ -429,7 +522,9 @@ function Main {
         Write-Step 'Найдена существующая установка — обновляю, данные и настройки не трогаю'
     }
 
-    Install-Binary
+    $source = Resolve-BinarySource
+    Stop-ExistingService
+    Install-Binary -Source $source
 
     New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 

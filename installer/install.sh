@@ -27,6 +27,12 @@ SERVICE_USER="mirocraft"
 MIROCRAFT_VERSION="${MIROCRAFT_VERSION:-latest}"
 MIROCRAFT_BINARY="${MIROCRAFT_BINARY:-}"
 
+# Where the release assets are fetched from. Overridable for a private mirror
+# and for the test, which serves a release of its own so the download and the
+# checksum check are exercised rather than assumed. The assets are expected
+# under this address by name, alongside SHA256SUMS.
+MIROCRAFT_BASE_URL="${MIROCRAFT_BASE_URL:-}"
+
 # MIROCRAFT_MODE picks the DNS/TLS arrangement without asking:
 #   1  free subdomain   2  own domain   3  no domain, address only
 # Set it to run unattended; without it the script asks.
@@ -90,6 +96,43 @@ detect_arch() {
 
 # --- installing the binary -------------------------------------------------
 
+# verify_checksum compares a downloaded file against the release's SHA256SUMS.
+#
+# This script runs as root and the file it downloads runs as a service, so
+# "it arrived over TLS" is not the whole answer: a wrong release, a truncated
+# body a proxy handed back with a 200, or a mirror nobody audited all look
+# like a successful download. A release without SHA256SUMS is refused rather
+# than installed unverified — an installer that skips the check when the file
+# is missing is one whose check never runs.
+verify_checksum() {
+    local file="$1" asset="$2" sums_url="$3"
+
+    command -v sha256sum >/dev/null 2>&1 || die "Нужен sha256sum (пакет coreutils)"
+
+    # The candidate is removed before every die: it is unverified, and an
+    # unverified binary left in /tmp is the one someone runs by hand later.
+    local sums expected actual
+    sums="$(mktemp)"
+    if ! curl -fsSL --retry 3 -o "${sums}" "${sums_url}"; then
+        rm -f "${sums}" "${file}"
+        die "Не удалось скачать SHA256SUMS — не могу проверить, что скачался нужный файл"
+    fi
+
+    expected="$(awk -v a="${asset}" '$2 == a || $2 == "*" a { print $1 }' "${sums}" | head -1)"
+    rm -f "${sums}"
+    if [ -z "${expected}" ]; then
+        rm -f "${file}"
+        die "В SHA256SUMS нет строки для ${asset}"
+    fi
+
+    actual="$(sha256sum "${file}" | awk '{ print $1 }')"
+    if [ "${actual}" != "${expected}" ]; then
+        rm -f "${file}"
+        die "Контрольная сумма не совпала для ${asset}: ожидалась ${expected}, получилась ${actual}"
+    fi
+    ok "Контрольная сумма сошлась"
+}
+
 install_binary() {
     local arch
     arch="$(detect_arch)"
@@ -101,12 +144,17 @@ install_binary() {
         [ -f "${MIROCRAFT_BINARY}" ] || die "Файл не найден: ${MIROCRAFT_BINARY}"
         install -m 0755 "${MIROCRAFT_BINARY}" "${BIN_PATH}"
     else
-        local url
-        if [ "${MIROCRAFT_VERSION}" = "latest" ]; then
-            url="https://github.com/${REPO}/releases/latest/download/mirocraft-linux-${arch}"
+        local asset base url sums_url
+        asset="mirocraft-linux-${arch}"
+        if [ -n "${MIROCRAFT_BASE_URL}" ]; then
+            base="${MIROCRAFT_BASE_URL%/}"
+        elif [ "${MIROCRAFT_VERSION}" = "latest" ]; then
+            base="https://github.com/${REPO}/releases/latest/download"
         else
-            url="https://github.com/${REPO}/releases/download/${MIROCRAFT_VERSION}/mirocraft-linux-${arch}"
+            base="https://github.com/${REPO}/releases/download/${MIROCRAFT_VERSION}"
         fi
+        url="${base}/${asset}"
+        sums_url="${base}/SHA256SUMS"
 
         step "Скачиваю ${url}"
         # To a temporary file first: an interrupted download must not leave a
@@ -117,6 +165,9 @@ install_binary() {
             rm -f "${tmp}"
             die "Не удалось скачать бинарник. Проверьте сеть и что релиз ${MIROCRAFT_VERSION} существует"
         fi
+
+        verify_checksum "${tmp}" "${asset}" "${sums_url}"
+
         install -m 0755 "${tmp}" "${BIN_PATH}"
         rm -f "${tmp}"
     fi

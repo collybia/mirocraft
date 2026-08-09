@@ -1,0 +1,221 @@
+name: Release
+
+# Tagging is what publishes a release. The dispatch trigger runs everything
+# except the publishing step, so the release path can be exercised without
+# burning a version number on it — a release workflow that is only ever run
+# by tagging is one that gets debugged in public.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The panel is built once and handed to every architecture, rather than
+  # rebuilt inside each matrix leg. Three independent npm builds could differ
+  # — a floating dependency is enough — and then the three binaries of one
+  # release would carry three different panels.
+  panel:
+    name: Panel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build
+        working-directory: web
+        run: npm ci && npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panel
+          path: web/dist
+          retention-days: 1
+          if-no-files-found: error
+
+  build:
+    name: ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: panel
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            asset: mirocraft-linux-amd64
+          - goos: linux
+            goarch: arm64
+            asset: mirocraft-linux-arm64
+          - goos: windows
+            goarch: amd64
+            asset: mirocraft-windows-amd64.exe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Read from go.mod rather than pinned here: two places to bump is
+          # one place to forget, and the mismatch shows up as a toolchain
+          # download in the middle of a release build.
+          go-version-file: go.mod
+          check-latest: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: panel
+          path: web/dist
+
+      # web/embed.go falls back to a placeholder when dist/index.html is
+      # missing, so a lost artifact would produce a binary that starts fine
+      # and serves nothing. Checked here, where it is still cheap to fix.
+      - name: The panel is present
+        run: test -f web/dist/index.html
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0-dev+{0}', github.sha) }}
+        run: |
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${VERSION}" \
+            -o "${{ matrix.asset }}" ./cmd/mirocraft
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          retention-days: 1
+          if-no-files-found: error
+
+  # The artifact that operators will actually download, started the way they
+  # will start it. Everything up to here proves the code compiles; this is the
+  # only step that proves the thing that ships runs.
+  smoke:
+    name: Smoke test
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: mirocraft-linux-amd64
+
+      - name: Run it
+        env:
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0-dev+{0}', github.sha) }}
+        run: |
+          set -euo pipefail
+          chmod +x mirocraft-linux-amd64
+
+          # A binary that reports "dev" means the ldflags path broke, and the
+          # release would go out claiming to be a development build.
+          reported="$(./mirocraft-linux-amd64 --version)"
+          echo "reported: ${reported}"
+          case "${reported}" in
+            *"${VERSION}"*) ;;
+            *) echo "expected the version to contain ${VERSION}"; exit 1 ;;
+          esac
+
+          ./mirocraft-linux-amd64 --data-dir ./smoke-data --addr 127.0.0.1:8099 &
+          daemon=$!
+          trap 'kill "${daemon}" 2>/dev/null || true' EXIT
+
+          # Polled rather than slept on: a fixed sleep is either too short on a
+          # loaded runner or wasted on an idle one.
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8099/api/v1/health >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+
+          curl -fsS http://127.0.0.1:8099/api/v1/health | grep -q '"status":"ok"'
+          echo "health ok"
+
+          # And the panel, because embedding it is the part that can silently
+          # produce a working daemon nobody can use.
+          curl -fsS http://127.0.0.1:8099/ | grep -q 'id="root"'
+          echo "panel ok"
+
+  publish:
+    name: Publish
+    needs: [build, smoke]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          pattern: mirocraft-*
+          merge-multiple: true
+
+      # The installers verify what they download against this file, so it is
+      # part of the release rather than a courtesy.
+      - name: Checksums
+        working-directory: assets
+        run: |
+          sha256sum mirocraft-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Release notes
+        id: notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          previous="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          {
+            echo "## Установка"
+            echo
+            echo '```bash'
+            echo "curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/master/installer/install.sh | sudo bash"
+            echo '```'
+            echo
+            echo '```powershell'
+            echo "irm https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/master/installer/install.ps1 | iex"
+            echo '```'
+            echo
+            echo "Установщики скачивают этот релиз и проверяют \`SHA256SUMS\`."
+            echo "Повторный запуск установщика — это обновление."
+            echo
+            echo "## Изменения"
+            echo
+            if [ -n "${previous}" ]; then
+              git log --no-merges --pretty='- %s' "${previous}..${TAG}"
+            else
+              git log --no-merges --pretty='- %s' "${TAG}"
+            fi
+          } > notes.md
+          cat notes.md
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Prereleases are marked as such by their tag, so an -rc does not
+          # become what "latest" resolves to for every installer in the wild.
+          prerelease=""
+          case "${TAG}" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+
+          gh release create "${TAG}" \
+            --title "${TAG}" \
+            --notes-file notes.md \
+            ${prerelease} \
+            assets/mirocraft-linux-amd64 \
+            assets/mirocraft-linux-arm64 \
+            assets/mirocraft-windows-amd64.exe \
+            assets/SHA256SUMS
