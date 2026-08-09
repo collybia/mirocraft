@@ -33,3 +33,8 @@ mirocraft.yaml
 .DS_Store
 Thumbs.db
 .installer-test/
+
+# The documentation site is generated from docs/ by web/scripts/docs-site.mjs
+# and published by CI. Committing the render would mean reviewing HTML diffs
+# for every wording change.
+/site/

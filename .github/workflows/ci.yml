@@ -79,6 +79,12 @@ jobs:
       - name: Known vulnerabilities
         run: npm audit --audit-level=high
 
+      # Built here as well as in the Pages workflow, because the generator
+      # checks every internal link: a heading renamed in Markdown should fail
+      # on the branch that renamed it, not on the deploy afterwards.
+      - name: Documentation site
+        run: npm run docs
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

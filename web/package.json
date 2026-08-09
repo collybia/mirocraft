@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test:themes": "node src/themes/contrast.test.mjs",
     "test:colors": "node scripts/check-color-literals.mjs",
-    "test": "npm run typecheck && npm run test:themes && npm run test:colors"
+    "test": "npm run typecheck && npm run test:themes && npm run test:colors",
+    "docs": "node scripts/docs-site.mjs ../site"
   },
   "dependencies": {
     "react": "18.3.1",

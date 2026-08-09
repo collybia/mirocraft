@@ -1,0 +1,67 @@
+name: Docs
+
+# The site is the repository's own Markdown, rendered. It is rebuilt when that
+# Markdown changes rather than on every push, so a code-only commit does not
+# redeploy a site that did not change.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "README.md"
+      - "README.en.md"
+      - "docs/**"
+      - "web/scripts/docs-site.mjs"
+      - "web/package.json"
+      - "web/package-lock.json"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and a running one is left to finish: cancelling a
+# deploy halfway is how a site ends up serving half of two versions.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      # The generator checks every internal link and exits non-zero on a
+      # broken one, so a renamed heading fails here rather than in front of a
+      # reader.
+      - name: Build the site
+        run: npm run docs
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
