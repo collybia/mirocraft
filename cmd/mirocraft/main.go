@@ -177,6 +177,16 @@ func run(parent context.Context) error {
 		return err
 	}
 
+	// The bots run in this process and reach the API over the loopback
+	// address, so they are prepared before the API is built and handed to it:
+	// saving a token in the panel has to reach something that can act on it.
+	scheme := "http"
+	if certManager != nil && certManager.Enabled() {
+		scheme = "https"
+	}
+	botSupervisor := startBots(parent, db,
+		cfg.Addr, publicPanelURL(scheme, cfg.Addr, cfg.TLS.Domain), log)
+
 	restAPI := api.New(api.Options{
 		Store:       db,
 		Console:     selected.runner,
@@ -188,6 +198,7 @@ func run(parent context.Context) error {
 		DNS:         dnsPublisher(dnsProvider),
 		DNSWatcher:  dnsWatcher,
 		Certs:       certStatus(certManager),
+		Bots:        botSupervisorOrNil(botSupervisor),
 		Logger:      log,
 		DataDir:     cfg.DataDir,
 		TicketTTL:   cfg.Console.TicketTTL,
@@ -300,6 +311,9 @@ func run(parent context.Context) error {
 	// waiting out the shutdown timeout.
 	if err := selected.runner.Shutdown(shutdownCtx); err != nil {
 		log.Error("shutting down runner failed", slog.String("error", err.Error()))
+	}
+	if botSupervisor != nil {
+		botSupervisor.Shutdown(shutdownCtx)
 	}
 	if httpChallenge != nil {
 		_ = httpChallenge.Shutdown(shutdownCtx)

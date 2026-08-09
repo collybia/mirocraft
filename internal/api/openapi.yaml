@@ -1362,6 +1362,76 @@ paths:
 
   # --- dns ---
 
+  /admin/bots:
+    get:
+      tags: [admin]
+      summary: Настройки чат-ботов
+      description: |
+        Строка на каждую поддерживаемую платформу, настроенную или нет: панель
+        рисует страницу по этому списку, и ответ, содержащий только уже
+        существующее, не оставил бы оператору места вставить первый токен.
+
+        Токен наружу не отдаётся никогда — только `configured` и последние
+        четыре символа, чтобы оператор узнал свой.
+      responses:
+        "200":
+          description: список платформ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/BotSettings" }
+
+  /admin/bots/{provider}:
+    put:
+      tags: [admin]
+      summary: Сохранить токен и включить бота
+      description: |
+        `token` необязателен: без него сохранённый остаётся на месте, поэтому
+        переключатель можно щёлкнуть, не вставляя секрет заново.
+
+        Смена токена перезапускает сессию — работающая держит старый, и
+        платформа продолжала бы доставлять команды в неё.
+      parameters:
+        - $ref: "#/components/parameters/Provider"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  description: токен бота с платформы; не возвращается обратно
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: сохранено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BotSettings" }
+        "400":
+          description: токен пустой или платформа неизвестна
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [admin]
+      summary: Забыть платформу вместе с токеном
+      parameters:
+        - $ref: "#/components/parameters/Provider"
+      responses:
+        "204": { description: удалено }
+        "404":
+          description: платформа не была настроена
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /integrations:
     get:
       tags: [integrations]
@@ -2248,6 +2318,32 @@ components:
         last_success_at: { type: string, format: date-time, nullable: true }
         failure_count: { type: integer }
         created_at: { type: string, format: date-time }
+
+    BotSettings:
+      type: object
+      properties:
+        provider: { type: string, enum: [discord, telegram] }
+        configured:
+          type: boolean
+          description: токен сохранён
+        token_hint:
+          type: string
+          description: последние четыре символа токена
+          example: "…aB3f"
+        enabled: { type: boolean }
+        running:
+          type: boolean
+          description: сессия поднята прямо сейчас
+        status: { type: string, enum: [off, connecting, connected, failed] }
+        error:
+          type: string
+          description: |
+            почему последняя попытка не удалась — показывается там же, где
+            оператор вставлял токен, а не в журнале демона
+        account:
+          type: string
+          description: имя бота на платформе, известно после подключения
+        updated_at: { type: string, format: date-time }
 
     Integration:
       type: object

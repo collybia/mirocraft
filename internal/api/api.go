@@ -64,6 +64,11 @@ type Options struct {
 	// Events is the bus the panel and the webhooks read. Nil creates one.
 	Events *events.Bus
 
+	// Bots runs the chat bots. Nil leaves the settings endpoints working and
+	// nothing listening to them, which is what a build without bots looks
+	// like — the panel then shows them as switched off rather than lying.
+	Bots BotSupervisor
+
 	// DataDir is where server directories are created.
 	DataDir string
 	// PortFrom and PortTo bound automatic port assignment.
@@ -102,6 +107,7 @@ type API struct {
 	dnsWatcher  *dns.Watcher
 	certs       CertStatus
 	events      *events.Bus
+	bots        BotSupervisor
 	ping        Pinger
 	tickets     *TicketStore
 	tasks       *taskRegistry
@@ -182,6 +188,7 @@ func New(opts Options) *API {
 		dnsWatcher:   opts.DNSWatcher,
 		certs:        opts.Certs,
 		events:       bus,
+		bots:         opts.Bots,
 		tickets:      NewTicketStore(opts.TicketTTL),
 		tasks:        newTaskRegistry(),
 		scheduleRuns: newRunningSchedules(),
@@ -313,10 +320,13 @@ func (a *API) authedRoutes() map[string]http.HandlerFunc {
 // adminRoutes are the routes that additionally require the admin role.
 func (a *API) adminRoutes() map[string]http.HandlerFunc {
 	return map[string]http.HandlerFunc{
-		"GET /api/v1/admin/users":         a.handleListUsers,
-		"POST /api/v1/admin/users":        a.handleCreateUser,
-		"PATCH /api/v1/admin/users/{id}":  a.handlePatchUser,
-		"DELETE /api/v1/admin/users/{id}": a.handleDeleteUser,
+		"GET /api/v1/admin/bots":               a.handleListBots,
+		"PUT /api/v1/admin/bots/{provider}":    a.handleSaveBot,
+		"DELETE /api/v1/admin/bots/{provider}": a.handleDeleteBot,
+		"GET /api/v1/admin/users":              a.handleListUsers,
+		"POST /api/v1/admin/users":             a.handleCreateUser,
+		"PATCH /api/v1/admin/users/{id}":       a.handlePatchUser,
+		"DELETE /api/v1/admin/users/{id}":      a.handleDeleteUser,
 	}
 }
 

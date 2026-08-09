@@ -137,6 +137,20 @@ func (r *TokenRepo) DeleteByHash(ctx context.Context, hash string) error {
 	return nil
 }
 
+// DeleteByUserAndName revokes every token an account holds under one name.
+//
+// Used for tokens a process reissues on each start: the previous run's value
+// is unknowable to this one, so keeping the rows would accumulate one dead
+// credential per restart. Missing rows are not an error — the first start has
+// none.
+func (r *TokenRepo) DeleteByUserAndName(ctx context.Context, userID, name string) error {
+	if _, err := r.db.ExecContext(ctx,
+		`DELETE FROM tokens WHERE user_id = ? AND name = ?`, userID, name); err != nil {
+		return fmt.Errorf("deleting tokens named %q for user %s: %w", name, userID, err)
+	}
+	return nil
+}
+
 // DeleteExpired removes tokens whose expiry has passed and reports how many
 // were removed.
 func (r *TokenRepo) DeleteExpired(ctx context.Context, now time.Time) (int64, error) {
