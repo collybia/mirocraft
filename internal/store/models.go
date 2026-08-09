@@ -107,6 +107,14 @@ type Server struct {
 	// people do, but not something the panel arranges.
 	ProxyID string
 
+	// Crossplay says Bedrock clients may join this Java server, through
+	// Geyser and Floodgate.
+	Crossplay bool
+	// BedrockPort is the UDP port those clients connect to. Kept when
+	// crossplay is switched off, so switching it back on does not move the
+	// address every player had saved.
+	BedrockPort int
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

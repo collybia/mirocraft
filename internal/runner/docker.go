@@ -229,6 +229,14 @@ func (r *DockerRunner) Start(ctx context.Context, srv *Server) error {
 			spec.Ports = map[int]int{srv.Port: srv.Port}
 		}
 	}
+	if srv.BedrockPort > 0 {
+		// Beside the game port rather than instead of it: a crossplay server
+		// takes Java players on TCP and Bedrock players on UDP at once.
+		if spec.UDPPorts == nil {
+			spec.UDPPorts = map[int]int{}
+		}
+		spec.UDPPorts[srv.BedrockPort] = srv.BedrockPort
+	}
 	if r.CPUs > 0 {
 		spec.NanoCPUs = int64(r.CPUs * 1e9)
 	}

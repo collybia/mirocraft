@@ -112,6 +112,8 @@ func run(parent context.Context) error {
 	// PocketMine runs on PHP, and on its own PHP: a distribution's refuses the
 	// phar over a missing extension.
 	provisioner.PHP = php.NewManager(filepath.Join(cfg.DataDir, "php"), log)
+	// Geyser and Floodgate, for the crossplay switch.
+	provisioner.Crossplay = core.NewCrossplay(nil)
 	// A container brings its own Java, so downloading 110 MB of JRE onto the
 	// host to run a server that will never touch it is pure waste.
 	provisioner.SkipHostJava = selected.docker != nil

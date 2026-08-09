@@ -2163,6 +2163,18 @@ components:
           description: |
             прокси, за которым стоит этот сервер; пусто — сервер доступен
             напрямую. У самого прокси пусто всегда
+        crossplay:
+          type: boolean
+          description: |
+            на сервер могут заходить с Bedrock-клиента: панель ставит Geyser и
+            Floodgate и выделяет UDP-порт
+        bedrock_port:
+          type: integer
+          description: |
+            UDP-порт для Bedrock-клиентов; ноль — кроссплей выключен. Порт
+            сохраняется при выключении, чтобы повторное включение не сменило
+            адрес, который игроки уже записали
+          example: 19132
         created_at: { type: string, format: date-time }
         metrics:
           nullable: true

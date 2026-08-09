@@ -90,9 +90,11 @@ type patchServerRequest struct {
 	Port     *int    `json:"port"`
 	JavaArgs *string `json:"java_args"`
 	// ProxyID links this server to a proxy, or unlinks it when empty.
-	ProxyID     *string `json:"proxy_id"`
-	AutoStart   *bool   `json:"auto_start"`
-	AutoRestart *bool   `json:"auto_restart"`
+	ProxyID *string `json:"proxy_id"`
+	// Crossplay lets Bedrock clients join this Java server.
+	Crossplay   *bool `json:"crossplay"`
+	AutoStart   *bool `json:"auto_start"`
+	AutoRestart *bool `json:"auto_restart"`
 }
 
 type powerRequest struct {
@@ -109,22 +111,25 @@ type serverMetrics struct {
 }
 
 type serverResponse struct {
-	ID           string         `json:"id"`
-	Name         string         `json:"name"`
-	Core         string         `json:"core"`
-	Version      string         `json:"version"`
-	Kind         string         `json:"kind"`
-	Status       string         `json:"status"`
-	RAMMb        int            `json:"ram_mb"`
-	Port         int            `json:"port"`
-	JavaArgs     string         `json:"java_args"`
-	OwnerID      string         `json:"owner_id"`
-	AutoStart    bool           `json:"auto_start"`
-	AutoRestart  bool           `json:"auto_restart"`
-	EULAAccepted bool           `json:"eula_accepted"`
-	ProxyID      string         `json:"proxy_id,omitempty"`
-	CreatedAt    time.Time      `json:"created_at"`
-	Metrics      *serverMetrics `json:"metrics,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Core         string `json:"core"`
+	Version      string `json:"version"`
+	Kind         string `json:"kind"`
+	Status       string `json:"status"`
+	RAMMb        int    `json:"ram_mb"`
+	Port         int    `json:"port"`
+	JavaArgs     string `json:"java_args"`
+	OwnerID      string `json:"owner_id"`
+	AutoStart    bool   `json:"auto_start"`
+	AutoRestart  bool   `json:"auto_restart"`
+	EULAAccepted bool   `json:"eula_accepted"`
+	ProxyID      string `json:"proxy_id,omitempty"`
+	Crossplay    bool   `json:"crossplay"`
+	// BedrockPort is where Bedrock clients connect, zero when crossplay is off.
+	BedrockPort int            `json:"bedrock_port,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	Metrics     *serverMetrics `json:"metrics,omitempty"`
 }
 
 func toServerResponse(s *store.Server) serverResponse {
@@ -132,7 +137,8 @@ func toServerResponse(s *store.Server) serverResponse {
 		ID: s.ID, Name: s.Name, Core: s.Core, Version: s.Version, Kind: s.Kind,
 		Status: s.Status, RAMMb: s.RAMMb, Port: s.Port, JavaArgs: s.JavaArgs,
 		OwnerID: s.OwnerID, AutoStart: s.AutoStart, AutoRestart: s.AutoRestart,
-		EULAAccepted: s.EULAAccepted, ProxyID: s.ProxyID, CreatedAt: s.CreatedAt,
+		EULAAccepted: s.EULAAccepted, ProxyID: s.ProxyID,
+		Crossplay: s.Crossplay, BedrockPort: s.BedrockPort, CreatedAt: s.CreatedAt,
 	}
 }
 
@@ -456,6 +462,12 @@ func (a *API) handlePatchServer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if req.Crossplay != nil {
+		if err := a.applyCrossplay(r, server, *req.Crossplay); err != nil {
+			writeFieldError(w, "crossplay", err.Error())
+			return
+		}
+	}
 	if req.JavaArgs != nil {
 		server.JavaArgs = *req.JavaArgs
 	}
@@ -651,6 +663,7 @@ func (a *API) startServer(ctx context.Context, server *store.Server) error {
 		launch.StopCommand = prepared.StopCommand
 		launch.Executable = prepared.Executable
 		launch.UDP = prepared.UDP
+		launch.BedrockPort = prepared.BedrockPort
 		launch.Image = prepared.Image
 		launch.JavaBin = prepared.JavaBin
 		// Carried through even when the host has no runtime installed: the
@@ -897,4 +910,62 @@ func (a *API) applyProxyLink(r *http.Request, server *store.Server, proxyID stri
 
 	server.ProxyID = proxyID
 	return nil
+}
+
+// applyCrossplay switches crossplay on or off for a server.
+//
+// Switching it on allocates a UDP port; switching it off keeps it, so
+// switching back on later does not move the address every Bedrock player had
+// saved. The port is only released when the server is deleted.
+func (a *API) applyCrossplay(r *http.Request, server *store.Server, enabled bool) error {
+	if !enabled {
+		server.Crossplay = false
+		return nil
+	}
+
+	// Only a Java server: a Bedrock server already speaks the protocol, and a
+	// proxy's crossplay belongs on the proxy rather than behind it.
+	if a.cores != nil {
+		provider, err := a.cores.Get(server.Core)
+		if err != nil {
+			return errors.New("unknown core")
+		}
+		if provider.Kind() == core.KindBedrock {
+			return errors.New("this is already a Bedrock server")
+		}
+		if !provider.Content().Accepts() {
+			return errors.New(provider.Name() + " takes no plugins, so Geyser cannot be installed on it")
+		}
+	}
+
+	if server.BedrockPort == 0 {
+		port, err := a.allocateBedrockPort(r)
+		if err != nil {
+			return err
+		}
+		server.BedrockPort = port
+	}
+	server.Crossplay = true
+	return nil
+}
+
+// allocateBedrockPort picks a free UDP port for Geyser.
+//
+// The Bedrock default first, because a client tries it without being told and
+// finds the server by its own LAN discovery. Only one server on a machine can
+// have it, so the rest come from the configured range.
+func (a *API) allocateBedrockPort(r *http.Request) (int, error) {
+	taken, err := a.store.Servers.PortInUse(r.Context(), core.DefaultBedrockPort)
+	if err != nil {
+		return 0, errors.New("could not check the port")
+	}
+	if !taken {
+		return core.DefaultBedrockPort, nil
+	}
+
+	port, err := a.store.Servers.AllocatePort(r.Context(), a.portFrom, a.portTo)
+	if err != nil {
+		return 0, errors.New("no free port left for the Bedrock listener")
+	}
+	return port, nil
 }

@@ -24,6 +24,7 @@ export function ServerOptions({ server, onSaved }: Props) {
     auto_start: server.auto_start,
     auto_restart: server.auto_restart,
     proxy_id: server.proxy_id ?? "",
+    crossplay: server.crossplay ?? false,
   });
 
   // The proxies this account owns, for the picker below. Read once: the list
@@ -56,7 +57,8 @@ export function ServerOptions({ server, onSaved }: Props) {
     draft.java_args !== server.java_args ||
     draft.auto_start !== server.auto_start ||
     draft.auto_restart !== server.auto_restart ||
-    draft.proxy_id !== (server.proxy_id ?? "");
+    draft.proxy_id !== (server.proxy_id ?? "") ||
+    draft.crossplay !== (server.crossplay ?? false);
 
   const running = server.status === "running" || server.status === "starting";
 
@@ -154,6 +156,20 @@ export function ServerOptions({ server, onSaved }: Props) {
           Поднимать после падения
         </label>
 
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={draft.crossplay}
+            onChange={(e) => setDraft({ ...draft, crossplay: e.target.checked })}
+          />
+          Пускать игроков с Bedrock
+        </label>
+        <p className="-mt-2 text-xs text-muted">
+          Панель поставит Geyser и Floodgate и откроет UDP-порт
+          {server.bedrock_port ? ` ${server.bedrock_port}` : ""}. Java-игроки продолжат заходить как
+          обычно, на тот же порт, что и раньше.
+        </p>
+
         {proxies.length > 0 && (
           <label className="grid gap-1">
             <span className="text-sm text-muted">За каким прокси</span>
@@ -198,6 +214,7 @@ export function ServerOptions({ server, onSaved }: Props) {
                 auto_start: server.auto_start,
                 auto_restart: server.auto_restart,
                 proxy_id: server.proxy_id ?? "",
+                crossplay: server.crossplay ?? false,
               })
             }
           >

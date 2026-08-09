@@ -58,6 +58,10 @@ type Server struct {
 	// container publishing its port as TCP would accept nothing.
 	UDP bool
 
+	// BedrockPort is an extra UDP port to publish beside the game port, for a
+	// Java server running Geyser. Zero means none.
+	BedrockPort int
+
 	// Image overrides the container image. Empty lets the runner choose one
 	// from the Java version, which is right for a JVM and wrong for a native
 	// binary that needs a plain distribution instead.

@@ -59,6 +59,10 @@ export interface Server {
   eula_accepted: boolean;
   /** The proxy this server sits behind, empty when it is reached directly. */
   proxy_id?: string;
+  /** Bedrock clients may join this Java server, through Geyser and Floodgate. */
+  crossplay?: boolean;
+  /** Where those clients connect. Zero when crossplay is off. */
+  bedrock_port?: number;
   created_at: string;
   metrics?: ServerMetrics | null;
 }
@@ -530,6 +534,7 @@ export function patchServer(
     auto_start?: boolean;
     auto_restart?: boolean;
     proxy_id?: string;
+    crossplay?: boolean;
   },
 ): Promise<Server> {
   return request<Server>(`/servers/${id}`, { method: "PATCH", body: JSON.stringify(patch) });

@@ -14,7 +14,7 @@ type ServerRepo struct{ db *sql.DB }
 
 const serverColumns = `id, owner_id, name, core, version, kind, status, ram_mb, port,
 	java_args, dir, jar_name, auto_start, auto_restart, eula_accepted, proxy_id,
-	created_at, updated_at`
+	crossplay, bedrock_port, created_at, updated_at`
 
 // ServerFilter narrows a listing. Empty fields are ignored.
 type ServerFilter struct {
@@ -40,10 +40,10 @@ func (r *ServerRepo) Create(ctx context.Context, s *Server) error {
 
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO servers (`+serverColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		s.ID, s.OwnerID, s.Name, s.Core, s.Version, s.Kind, s.Status, s.RAMMb, s.Port,
 		s.JavaArgs, s.Dir, s.JarName, s.AutoStart, s.AutoRestart, s.EULAAccepted,
-		nullableString(s.ProxyID),
+		nullableString(s.ProxyID), s.Crossplay, s.BedrockPort,
 		formatTime(s.CreatedAt), formatTime(s.UpdatedAt))
 	if err != nil {
 		if isUniqueViolation(err, "idx_servers_port", "servers.port") {
@@ -139,11 +139,13 @@ func (r *ServerRepo) Update(ctx context.Context, s *Server) error {
 		UPDATE servers SET
 			name = ?, core = ?, version = ?, kind = ?, status = ?, ram_mb = ?, port = ?,
 			java_args = ?, dir = ?, jar_name = ?, auto_start = ?, auto_restart = ?,
-			eula_accepted = ?, proxy_id = ?, updated_at = ?
+			eula_accepted = ?, proxy_id = ?, crossplay = ?, bedrock_port = ?,
+			updated_at = ?
 		WHERE id = ?`,
 		s.Name, s.Core, s.Version, s.Kind, s.Status, s.RAMMb, s.Port,
 		s.JavaArgs, s.Dir, s.JarName, s.AutoStart, s.AutoRestart, s.EULAAccepted,
-		nullableString(s.ProxyID), formatTime(s.UpdatedAt), s.ID)
+		nullableString(s.ProxyID), s.Crossplay, s.BedrockPort,
+		formatTime(s.UpdatedAt), s.ID)
 	if err != nil {
 		if isUniqueViolation(err, "idx_servers_port", "servers.port") {
 			return ErrPortInUse
@@ -236,12 +238,14 @@ func scanServer(row rowScanner) (*Server, error) {
 		autoRestart  int
 		eulaAccepted int
 		proxyID      sql.NullString
+		crossplay    int
 		createdAt    string
 		updatedAt    string
 	)
 	err := row.Scan(&s.ID, &s.OwnerID, &s.Name, &s.Core, &s.Version, &s.Kind, &s.Status,
 		&s.RAMMb, &s.Port, &s.JavaArgs, &s.Dir, &s.JarName,
-		&autoStart, &autoRestart, &eulaAccepted, &proxyID, &createdAt, &updatedAt)
+		&autoStart, &autoRestart, &eulaAccepted, &proxyID,
+		&crossplay, &s.BedrockPort, &createdAt, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -250,6 +254,7 @@ func scanServer(row rowScanner) (*Server, error) {
 	}
 
 	s.ProxyID = proxyID.String
+	s.Crossplay = crossplay != 0
 	s.AutoStart = autoStart != 0
 	s.AutoRestart = autoRestart != 0
 	s.EULAAccepted = eulaAccepted != 0

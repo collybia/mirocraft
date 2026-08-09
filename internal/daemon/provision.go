@@ -59,6 +59,11 @@ type Provisioner struct {
 	// runtime once; every other server under Docker still pays nothing.
 	SkipHostJava bool
 
+	// Crossplay resolves the Geyser and Floodgate downloads. Nil means the
+	// crossplay switch cannot be honoured, which is refused plainly rather
+	// than left as a server that quietly does not accept Bedrock players.
+	Crossplay *core.Crossplay
+
 	// PHP installs interpreters, for PocketMine. Nil means a PHP core cannot
 	// be started, which is said plainly rather than discovered as a missing
 	// binary.
@@ -116,6 +121,11 @@ type Launch struct {
 	// UDP says the server listens on UDP. Bedrock does; a container that
 	// published its port as TCP would accept nothing.
 	UDP bool
+	// BedrockPort is the UDP port Geyser listens on, for a Java server with
+	// crossplay switched on. Zero means none — the server is Java-only, and a
+	// container publishing a port nothing listens on takes it away from a
+	// server that needs it.
+	BedrockPort int
 	// Image overrides the container image, for a core the Java images cannot
 	// run.
 	Image string
@@ -254,6 +264,15 @@ func (p *Provisioner) Prepare(ctx context.Context, srv *store.Server, dir string
 	// start with an address already in use.
 	if err := p.applyManagedConfig(provider, srv, dir); err != nil {
 		return nil, err
+	}
+
+	// After the managed configuration, because Geyser is pointed at the port
+	// that step has just written.
+	if err := p.applyCrossplay(ctx, provider, srv, dir); err != nil {
+		return nil, err
+	}
+	if srv.Crossplay && srv.BedrockPort > 0 {
+		launch.BedrockPort = srv.BedrockPort
 	}
 
 	p.log.Info("server prepared",
