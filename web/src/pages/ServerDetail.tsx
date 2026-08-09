@@ -5,17 +5,19 @@ import * as api from "../lib/api";
 import { ServerBackups } from "./ServerBackups";
 import { ServerCatalog } from "./ServerCatalog";
 import { ServerFiles } from "./ServerFiles";
+import { ServerModpacks } from "./ServerModpacks";
 import { ServerOptions } from "./ServerOptions";
 import { ServerSettings } from "./ServerSettings";
 import { StatusBadge } from "./Servers";
 
-type Tab = "console" | "files" | "settings" | "catalog" | "backups" | "options";
+type Tab = "console" | "files" | "settings" | "catalog" | "modpacks" | "backups" | "options";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "console", label: "Консоль" },
   { id: "files", label: "Файлы" },
   { id: "settings", label: "server.properties" },
   { id: "catalog", label: "Дополнения" },
+  { id: "modpacks", label: "Модпаки" },
   { id: "backups", label: "Бэкапы" },
   { id: "options", label: "Параметры" },
 ];
@@ -274,6 +276,7 @@ export function ServerDetail() {
       {tab === "files" && <ServerFiles serverId={id} />}
       {tab === "settings" && <ServerSettings serverId={id} />}
       {tab === "catalog" && <ServerCatalog serverId={id} />}
+      {tab === "modpacks" && <ServerModpacks serverId={id} running={running} />}
       {tab === "backups" && <ServerBackups serverId={id} running={running} />}
       {tab === "options" && <ServerOptions server={server} onSaved={setServer} />}
 

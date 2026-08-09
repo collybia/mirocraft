@@ -1777,6 +1777,93 @@ paths:
         "400": { $ref: "#/components/responses/ValidationFailed" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /servers/{id}/modpack:
+    get:
+      tags: [catalog]
+      summary: Какой модпак стоит на сервере
+      description: |
+        Ответ читается из файла в каталоге сервера, а не из БД: он описывает
+        именно эти файлы, и восстановленный бэкап приносит с собой верный
+        ответ, а не запись о паке, которого в файлах уже нет.
+
+        `installed: null` — модпака нет. Это ответ, а не ошибка.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: установленный модпак или null
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  installed:
+                    oneOf:
+                      - { $ref: "#/components/schemas/InstalledModpack" }
+                      - { type: "null" }
+    post:
+      tags: [catalog]
+      summary: Установить модпак в один клик
+      description: |
+        Требует `servers:write` и `files:write` разом: установка меняет ядро и
+        версию Minecraft, которые сервер запускает, и переписывает содержимое
+        каталога модов.
+
+        Что происходит по шагам: скачивается `.mrpack` (сверяется с sha512 из
+        реестра), из индекса читается нужный загрузчик, каталог модов
+        **очищается целиком**, ставятся файлы пака и его overrides, сервер
+        переключается на нужное ядро и версию, и загрузчик ставится сразу же —
+        чтобы пак, которому нужен загрузчик, который панель собрать не может,
+        сломался сейчас, при операторе, а не при старте через три часа.
+
+        Моды пака — это весь список модов. Оставшееся от прошлой установки
+        грузилось бы вместе с ним, и сервер падал бы с ошибкой о дубликате
+        мода, которую уже не связать с этим моментом. Поэтому каталог модов
+        очищается; `dry_run` показывает, какой именно.
+
+        Только Java-серверы: модпак — это набор Java-модов и загрузчик, и на
+        Bedrock или на прокси ставить его нечего. Сервер должен быть остановлен.
+
+        CurseForge не поддерживается: их API требует ключ на каждую загрузку, а
+        self-hosted панели неоткуда взять ключ для каждого оператора.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string }
+                version_id:
+                  type: string
+                  description: пусто — берётся новейшая опубликованная версия
+                dry_run:
+                  type: boolean
+                  description: только показать, что изменится, ничего не меняя
+      responses:
+        "200":
+          description: план установки (dry_run)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModpackPlan" }
+        "202":
+          description: задача принята
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: { type: string }
+                  plan: { $ref: "#/components/schemas/ModpackPlan" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: сервер запущен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /servers/{id}/installed:
     get:
       tags: [catalog]
@@ -2595,6 +2682,43 @@ components:
             properties:
               project_id: { type: string }
               reason: { type: string }
+
+    ModpackPlan:
+      type: object
+      description: что установка модпака изменит на сервере, до того как изменит
+      properties:
+        project_id: { type: string }
+        version_id: { type: string }
+        name: { type: string, description: название версии пака }
+        version: { type: string, description: номер версии пака }
+        file: { type: string, description: имя .mrpack }
+        size_bytes: { type: integer, description: размер самого пака, без модов }
+        core:
+          type: string
+          description: ядро, на котором сервер окажется после установки
+        minecraft:
+          type: string
+          description: версия Minecraft, на которой сервер окажется
+        changes_core:
+          type: boolean
+          description: |
+            пак меняет ядро или версию Minecraft — то, что стоит подтвердить:
+            это замена того, что сервер запускает, а не только того, что грузит
+        replaces_dir:
+          type: string
+          description: каталог, который будет очищен перед установкой
+
+    InstalledModpack:
+      type: object
+      properties:
+        project_id: { type: string }
+        version_id: { type: string }
+        name: { type: string }
+        version: { type: string }
+        core: { type: string }
+        minecraft: { type: string }
+        files: { type: integer, description: сколько файлов пак принёс }
+        installed_at: { type: string, format: date-time }
 
     InstalledAddon:
       type: object

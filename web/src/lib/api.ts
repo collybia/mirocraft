@@ -686,6 +686,50 @@ export async function listInstalled(id: string): Promise<InstalledAddon[]> {
   return body.items;
 }
 
+/* --- modpacks --- */
+
+export interface ModpackPlan {
+  project_id: string;
+  version_id: string;
+  name: string;
+  version: string;
+  file: string;
+  size_bytes: number;
+  /** The core the server will be running afterwards. */
+  core: string;
+  minecraft: string;
+  /** The pack replaces what the server runs, not only what it loads. */
+  changes_core: boolean;
+  /** Emptied before the pack is installed. */
+  replaces_dir: string;
+}
+
+export interface InstalledModpack {
+  project_id: string;
+  version_id: string;
+  name: string;
+  version: string;
+  core: string;
+  minecraft: string;
+  files: number;
+  installed_at: string;
+}
+
+export async function serverModpack(id: string): Promise<InstalledModpack | null> {
+  const body = await request<{ installed: InstalledModpack | null }>(`/servers/${id}/modpack`);
+  return body.installed;
+}
+
+export function installModpack(
+  id: string,
+  input: { project_id: string; version_id?: string; dry_run?: boolean },
+): Promise<{ task_id?: string; plan?: ModpackPlan } & Partial<ModpackPlan>> {
+  return request<{ task_id?: string; plan?: ModpackPlan } & Partial<ModpackPlan>>(
+    `/servers/${id}/modpack`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
 export function toggleInstalled(
   id: string,
   file: string,

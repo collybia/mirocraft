@@ -291,6 +291,8 @@ func (a *API) authedRoutes() map[string]http.HandlerFunc {
 		"GET /api/v1/catalog/projects/{pid}":                a.handleCatalogProject,
 		"GET /api/v1/servers/{id}/catalog":                  a.handleServerContent,
 		"POST /api/v1/servers/{id}/catalog/install":         a.handleCatalogInstall,
+		"GET /api/v1/servers/{id}/modpack":                  a.handleGetModpack,
+		"POST /api/v1/servers/{id}/modpack":                 a.handleInstallModpack,
 		"GET /api/v1/servers/{id}/installed":                a.handleListInstalled,
 		"DELETE /api/v1/servers/{id}/installed/{file}":      a.handleDeleteInstalled,
 		"POST /api/v1/servers/{id}/installed/{file}/toggle": a.handleToggleInstalled,

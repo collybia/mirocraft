@@ -68,6 +68,19 @@ func newTaskRegistry() *taskRegistry {
 
 // start registers a task and runs fn in the background, recording the outcome.
 func (reg *taskRegistry) start(kind, serverID, userID string, fn func(context.Context) error) *Task {
+	return reg.startWithProgress(kind, serverID, userID,
+		func(ctx context.Context, _ func(int)) error { return fn(ctx) })
+}
+
+// startWithProgress is start for work that can say how far it has got.
+//
+// Worth the second entry point for the one operation that takes minutes and
+// consists of hundreds of steps: a modpack install with no progress is
+// indistinguishable from a hung one, and the panel would have nothing to show
+// but a spinner.
+func (reg *taskRegistry) startWithProgress(
+	kind, serverID, userID string, fn func(context.Context, func(int)) error,
+) *Task {
 	now := time.Now().UTC()
 	task := &Task{
 		ID: store.NewID(), Kind: kind, ServerID: serverID, UserID: userID,
@@ -90,7 +103,16 @@ func (reg *taskRegistry) start(kind, serverID, userID string, fn func(context.Co
 		ctx, cancel := context.WithTimeout(context.Background(), TaskTimeout)
 		defer cancel()
 
-		err := fn(ctx)
+		// 100 means finished, so work in progress never reports it.
+		err := fn(ctx, func(percent int) {
+			if percent < 0 {
+				percent = 0
+			}
+			if percent > 99 {
+				percent = 99
+			}
+			reg.update(task.ID, func(t *Task) { t.Progress = percent })
+		})
 
 		reg.update(task.ID, func(t *Task) {
 			t.Progress = 100
