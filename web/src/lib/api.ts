@@ -822,3 +822,31 @@ export function createLinkCode(
 export function unlinkIntegration(provider: BotProvider): Promise<void> {
   return request<void>(`/integrations/${provider}`, { method: "DELETE" });
 }
+
+/* --- cores --- */
+
+export interface Core {
+  id: string;
+  name: string;
+  kind: string;
+  runtime: string;
+  /** Empty when the core takes no add-ons at all, as vanilla does. */
+  loader?: string;
+  content_dir?: string;
+}
+
+export interface CoreVersion {
+  id: string;
+  channel: "release" | "snapshot";
+  java_major: number;
+}
+
+export async function listCores(): Promise<Core[]> {
+  const body = await request<ListResponse<Core>>("/cores");
+  return body.items;
+}
+
+export async function listCoreVersions(core: string): Promise<CoreVersion[]> {
+  const body = await request<ListResponse<CoreVersion>>(`/cores/${core}/versions`);
+  return body.items;
+}

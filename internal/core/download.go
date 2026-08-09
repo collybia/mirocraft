@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"crypto/md5"  //nolint:gosec // upstream publishes md5 digests; verifying against them is the point
 	"crypto/sha1" //nolint:gosec // upstream publishes sha1 digests; verifying against them is the point
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,6 +20,7 @@ import (
 
 // Checksum algorithms upstream publishes.
 const (
+	AlgoMD5    = "md5"
 	AlgoSHA1   = "sha1"
 	AlgoSHA256 = "sha256"
 )
@@ -218,6 +220,11 @@ func newHasher(algorithm string) (hash.Hash, error) {
 	switch strings.ToLower(algorithm) {
 	case "":
 		return nil, nil
+	case AlgoMD5:
+		// Purpur publishes nothing stronger. Useless against a deliberate
+		// substitution and still the difference between a truncated download
+		// and a working server, which is what goes wrong in practice.
+		return md5.New(), nil //nolint:gosec // upstream-published algorithm
 	case AlgoSHA1:
 		// Weak against deliberate collisions, but this is what Mojang
 		// publishes; it still catches the truncation and corruption that

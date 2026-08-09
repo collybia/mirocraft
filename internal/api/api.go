@@ -285,6 +285,8 @@ func (a *API) authedRoutes() map[string]http.HandlerFunc {
 		"DELETE /api/v1/integrations/{provider}":            a.handleUnlink,
 		"GET /api/v1/dns":                                   a.handleDNSStatus,
 		"GET /api/v1/tls":                                   a.handleTLSStatus,
+		"GET /api/v1/cores":                                 a.handleListCores,
+		"GET /api/v1/cores/{core}/versions":                 a.handleListCoreVersions,
 		"GET /api/v1/catalog/search":                        a.handleCatalogSearch,
 		"GET /api/v1/catalog/projects/{pid}":                a.handleCatalogProject,
 		"GET /api/v1/servers/{id}/catalog":                  a.handleServerContent,

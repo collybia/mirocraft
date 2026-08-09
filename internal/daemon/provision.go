@@ -8,9 +8,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/collybia/mirocraft/internal/core"
+	"github.com/collybia/mirocraft/internal/gamefiles"
 	"github.com/collybia/mirocraft/internal/java"
 	"github.com/collybia/mirocraft/internal/store"
 )
@@ -105,12 +107,55 @@ func (p *Provisioner) Prepare(ctx context.Context, srv *store.Server, dir string
 		launch.JavaMajor = runtime.Major
 	}
 
+	// The panel refuses to let anyone edit server-port through the settings
+	// API on the grounds that it owns it, so it has to own it: without this
+	// the record says one port and the server listens on another, two servers
+	// created on different ports both bind 25565, and the second fails to
+	// start with an address already in use.
+	if err := p.applyManagedProperties(srv, dir); err != nil {
+		return nil, err
+	}
+
 	p.log.Info("server prepared",
 		slog.String("server_id", srv.ID),
 		slog.String("core", build.Core), slog.String("version", build.Version),
 		slog.String("build", build.Build), slog.Int("java", launch.JavaMajor))
 
 	return launch, nil
+}
+
+// applyManagedProperties writes the server.properties keys the panel owns.
+//
+// Run before every start rather than once at creation: an operator who edits
+// the file by hand, or restores a backup made on another port, would otherwise
+// leave the server listening somewhere the panel does not know about.
+func (p *Provisioner) applyManagedProperties(srv *store.Server, dir string) error {
+	if srv.Port <= 0 {
+		return nil
+	}
+
+	properties, err := gamefiles.LoadProperties(dir)
+	if err != nil {
+		return fmt.Errorf("reading server.properties of %s: %w", srv.ID, err)
+	}
+
+	port := strconv.Itoa(srv.Port)
+	if current, ok := properties.Get("server-port"); ok && current == port {
+		return nil
+	}
+
+	properties.Set("server-port", port)
+	// Left empty on purpose: an empty server-ip binds every interface, which
+	// is what a panel-managed server needs. A value here would silently make
+	// the server unreachable from anywhere but that address.
+	properties.Set("server-ip", "")
+
+	if err := properties.Save(dir); err != nil {
+		return fmt.Errorf("writing server.properties of %s: %w", srv.ID, err)
+	}
+	p.log.Info("applied the panel's port to server.properties",
+		slog.String("server_id", srv.ID), slog.Int("port", srv.Port))
+	return nil
 }
 
 // ensureJar makes sure the server directory holds the right jar.

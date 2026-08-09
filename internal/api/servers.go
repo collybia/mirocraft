@@ -207,6 +207,13 @@ func (a *API) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		writeFieldError(w, "core", "a core is required")
 		return
 	}
+	// Checked before the record is written: a server naming a core the daemon
+	// cannot serve fails only when someone starts it, with an error about
+	// provisioning at the moment they least expect one.
+	if err := a.validateCore(req.Core); err != nil {
+		writeFieldError(w, "core", "unknown core "+req.Core)
+		return
+	}
 	if strings.TrimSpace(req.Version) == "" {
 		writeFieldError(w, "version", "a version is required")
 		return

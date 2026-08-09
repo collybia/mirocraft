@@ -3,8 +3,6 @@ import { Link } from "react-router-dom";
 
 import * as api from "../lib/api";
 
-const CORES = ["paper", "vanilla", "purpur", "fabric", "forge", "neoforge"];
-
 export function Servers() {
   const [servers, setServers] = useState<api.Server[]>([]);
   const [loading, setLoading] = useState(true);
@@ -139,11 +137,62 @@ export function StatusBadge({ status }: { status: api.ServerStatus }) {
 function CreateServerForm({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState("");
   const [core, setCore] = useState("paper");
-  const [version, setVersion] = useState("1.21.4");
+  const [version, setVersion] = useState("");
   const [ram, setRam] = useState(2048);
   const [eula, setEula] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // The cores and their versions come from the daemon, not from a list kept
+  // here. A list kept here drifts: this one offered forge and neoforge before
+  // either existed, and picking one failed at provisioning time.
+  const [cores, setCores] = useState<api.Core[]>([]);
+  const [versions, setVersions] = useState<api.CoreVersion[]>([]);
+  const [versionsError, setVersionsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void api
+      .listCores()
+      .then((list) => {
+        setCores(list);
+        if (list.length > 0 && !list.some((c) => c.id === core)) setCore(list[0].id);
+      })
+      .catch(() => setCores([]));
+    // Once: the set of cores changes when the daemon is upgraded, not while a
+    // form is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!core) return;
+
+    let cancelled = false;
+    setVersions([]);
+    setVersionsError(null);
+
+    void api
+      .listCoreVersions(core)
+      .then((list) => {
+        if (cancelled) return;
+        setVersions(list);
+        // The newest release, which is what someone picking a core wants -
+        // not the newest snapshot, which sorts first and is not for players.
+        const release = list.find((v) => v.channel === "release") ?? list[0];
+        if (release) setVersion(release.id);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // The list comes from upstream, which can be down. Typing a version by
+        // hand still works, so this is a notice rather than a blocked form.
+        setVersionsError(
+          err instanceof api.ApiError ? err.message : "Не удалось получить список версий",
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [core]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -187,9 +236,10 @@ function CreateServerForm({ onCreated }: { onCreated: () => void }) {
           Ядро
         </label>
         <select id="core" value={core} onChange={(e) => setCore(e.target.value)} className="field">
-          {CORES.map((c) => (
-            <option key={c} value={c}>
-              {c}
+          {cores.length === 0 && <option value={core}>{core}</option>}
+          {cores.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
             </option>
           ))}
         </select>
@@ -199,13 +249,31 @@ function CreateServerForm({ onCreated }: { onCreated: () => void }) {
         <label className="mb-1 block text-sm text-muted" htmlFor="version">
           Версия
         </label>
-        <input
-          id="version"
-          required
-          value={version}
-          onChange={(e) => setVersion(e.target.value)}
-          className="field"
-        />
+        {versions.length > 0 ? (
+          <select
+            id="version"
+            value={version}
+            onChange={(e) => setVersion(e.target.value)}
+            className="field"
+          >
+            {versions.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.id}
+                {v.channel === "snapshot" ? " (снапшот)" : ""}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            id="version"
+            required
+            value={version}
+            onChange={(e) => setVersion(e.target.value)}
+            placeholder="1.21.4"
+            className="field"
+          />
+        )}
+        {versionsError && <p className="mt-1 text-xs text-warning">{versionsError}</p>}
       </div>
 
       <div>

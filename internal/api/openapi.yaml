@@ -1582,6 +1582,66 @@ paths:
 
   # --- catalogue ---
 
+  /cores:
+    get:
+      tags: [catalog]
+      summary: Ядра, которые панель умеет ставить
+      description: |
+        Панель строит из этого список при создании сервера, а не держит свой.
+        Список, который держат отдельно, расходится: он какое-то время
+        предлагал forge и neoforge, которых ещё не было, и выбор такого падал
+        уже при подготовке сервера.
+
+        Пустой `loader` — ядро не принимает дополнений вовсе. Это честный ответ
+        для vanilla: плагин, положенный рядом, просто никогда не читается.
+      responses:
+        "200":
+          description: список ядер
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Core" }
+
+  /cores/{core}/versions:
+    get:
+      tags: [catalog]
+      summary: Версии, доступные для ядра
+      description: |
+        Отвечает столько, сколько отвечает upstream. Провайдеры кэшируют что
+        могут, но второго слоя кэша здесь нет: устаревший список версий — это
+        ровно то, из-за чего только что вышедшая версия Minecraft выглядит
+        недоступной.
+      parameters:
+        - name: core
+          in: path
+          required: true
+          schema: { type: string, example: paper }
+      responses:
+        "200":
+          description: версии, новые первыми
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/CoreVersion" }
+        "404":
+          description: такого ядра нет
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: не удалось достучаться до API ядра
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /catalog/search:
     get:
       tags: [catalog]
@@ -2318,6 +2378,29 @@ components:
         last_success_at: { type: string, format: date-time, nullable: true }
         failure_count: { type: integer }
         created_at: { type: string, format: date-time }
+
+    Core:
+      type: object
+      properties:
+        id: { type: string, example: paper }
+        name: { type: string, example: Paper }
+        kind: { type: string, enum: [server, proxy, bedrock] }
+        runtime: { type: string, enum: [java, php, native] }
+        loader:
+          type: string
+          description: идентификатор загрузчика для каталога дополнений; пусто — ядро их не принимает
+          example: paper
+        content_dir:
+          type: string
+          description: куда кладутся дополнения
+          example: plugins
+
+    CoreVersion:
+      type: object
+      properties:
+        id: { type: string, example: 1.21.4 }
+        channel: { type: string, enum: [release, snapshot] }
+        java_major: { type: integer, example: 21 }
 
     BotSettings:
       type: object

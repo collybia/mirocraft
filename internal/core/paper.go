@@ -46,14 +46,34 @@ type Paper struct {
 
 // NewPaper returns the Paper provider.
 func NewPaper(client *http.Client) *Paper {
+	return NewPaperProject("paper", "Paper", KindServer, client)
+}
+
+// NewPaperProject returns a provider for any project on the PaperMC API.
+//
+// Folia, Velocity and Waterfall are published by the same service in the same
+// shape, so they are this type with a different id rather than three copies of
+// it. What differs between them — the name, and whether it is a proxy — is
+// exactly what this takes as arguments.
+func NewPaperProject(id, name string, kind Kind, client *http.Client) *Paper {
 	return &Paper{
-		Project:     "paper",
-		DisplayName: "Paper",
-		ServerKind:  KindServer,
+		Project:     id,
+		DisplayName: name,
+		ServerKind:  kind,
 		BaseURL:     PaperAPIBase,
 		Client:      client,
 		now:         time.Now,
 	}
+}
+
+// NewFolia returns the Folia provider.
+//
+// Folia is Paper with regionised threading, and it takes Paper's plugins only
+// when they are written for it — but the add-on registries list folia as its
+// own loader, so a plugin that declares Folia support is what the catalogue
+// offers here.
+func NewFolia(client *http.Client) *Paper {
+	return NewPaperProject("folia", "Folia", KindServer, client)
 }
 
 // ID returns the identifier the API and the database use for this core.
@@ -259,7 +279,13 @@ func (p *Paper) base() string {
 // this with the remaining cores.
 func DefaultRegistry(client *http.Client) *Registry {
 	r := NewRegistry()
+	// Registration order is the order the panel shows them in, so the ones
+	// most people want come first.
 	r.Register(NewVanilla(client))
 	r.Register(NewPaper(client))
+	r.Register(NewPurpur(client))
+	r.Register(NewPufferfish(client))
+	r.Register(NewFolia(client))
+	r.Register(NewFabric(client))
 	return r
 }

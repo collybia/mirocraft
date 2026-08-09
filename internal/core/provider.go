@@ -61,6 +61,23 @@ type Version struct {
 	JavaMajor int `json:"java_major"`
 }
 
+// Artifact says what the downloaded file actually is.
+type Artifact string
+
+const (
+	// ArtifactServer is a jar that is the server. Vanilla, Paper and their
+	// forks ship these: a few dozen megabytes that run offline.
+	ArtifactServer Artifact = "server"
+	// ArtifactLauncher is a small jar that fetches the rest on first start.
+	// Fabric ships one of these — under two hundred kilobytes, and it needs
+	// the network the first time it runs.
+	//
+	// Recorded because it changes what the panel can promise: a server whose
+	// first start needs the internet fails differently from one that does
+	// not, and a size check written for a server jar rejects a launcher.
+	ArtifactLauncher Artifact = "launcher"
+)
+
 // Build is a concrete downloadable artifact.
 type Build struct {
 	// Core is the provider id, for example "paper".
@@ -82,7 +99,14 @@ type Build struct {
 
 	SizeBytes int64 `json:"size_bytes,omitempty"`
 	JavaMajor int   `json:"java_major"`
+
+	// Artifact says whether the file is the server or a launcher for it.
+	// Empty means ArtifactServer, which is what most cores publish.
+	Artifact Artifact `json:"artifact,omitempty"`
 }
+
+// IsLauncher reports whether the first start of this build needs the network.
+func (b *Build) IsLauncher() bool { return b.Artifact == ArtifactLauncher }
 
 // Verifiable reports whether upstream published a checksum for this build.
 func (b *Build) Verifiable() bool {

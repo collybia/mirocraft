@@ -897,7 +897,21 @@ func TestDownloadWithoutAChecksumStillWorks(t *testing.T) {
 }
 
 func TestUnsupportedChecksumAlgorithmIsRejected(t *testing.T) {
-	if _, err := newHasher("md5"); err == nil {
-		t.Fatal("newHasher accepted md5")
+	// md5 used to be here; Purpur publishes nothing stronger, so it is
+	// supported now. What must still be rejected is an algorithm nobody
+	// publishes — a typo in a provider would otherwise silently verify
+	// nothing.
+	if _, err := newHasher("crc32"); err == nil {
+		t.Fatal("newHasher accepted crc32")
+	}
+
+	for _, algorithm := range []string{AlgoMD5, AlgoSHA1, AlgoSHA256} {
+		hasher, err := newHasher(algorithm)
+		if err != nil {
+			t.Errorf("newHasher(%q): %v", algorithm, err)
+		}
+		if hasher == nil {
+			t.Errorf("newHasher(%q) returned no hasher", algorithm)
+		}
 	}
 }
