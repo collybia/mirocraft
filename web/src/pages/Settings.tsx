@@ -10,12 +10,14 @@ import {
   swatchFor,
 } from "../themes";
 import { useTheme } from "../ThemeProvider";
+import { LinkedAccounts } from "../components/LinkedAccounts";
 
 export function Settings({ user }: { user: api.Me }) {
   return (
     <div className="grid gap-6">
       <ThemeSection />
       <ThemeEditor />
+      <LinkedAccounts />
       <AccountSection user={user} />
     </div>
   );

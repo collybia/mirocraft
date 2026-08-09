@@ -33,6 +33,7 @@ export function Layout({ user, onLoggedOut, children }: Props) {
             <NavItem to="/">Серверы</NavItem>
             <NavItem to="/settings">Настройки</NavItem>
             {user.role === "admin" && <NavItem to="/admin">Пользователи</NavItem>}
+            {user.role === "admin" && <NavItem to="/bots">Боты</NavItem>}
           </nav>
 
           <div className="ml-auto flex items-center gap-2">

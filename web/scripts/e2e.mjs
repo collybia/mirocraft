@@ -296,6 +296,54 @@ try {
   check("and deleted", (await page.locator("tr", { hasText: login }).count()) === 0);
   await shoot(page, "15-admin");
 
+  /* --- chat bots --- */
+
+  await page.click('a:has-text("Боты")');
+  await page.waitForSelector("text=Discord", { timeout: 20000 });
+  check("the bots page offers a row per platform",
+    (await page.locator("text=Telegram").count()) > 0);
+
+  // A platform with no token cannot be switched on: the checkbox is disabled
+  // until there is something to connect with.
+  const discordSection = page.locator("section", { hasText: "Discord" }).first();
+  check("the switch is unavailable before a token is saved",
+    await discordSection.locator('input[type="checkbox"]').isDisabled());
+
+  await discordSection.locator('input[type="password"]').fill("MTIzNDU2Nzg5.e2e.not-a-real-token");
+  await discordSection.locator('button:has-text("Сохранить и включить")').click();
+  await page.waitForSelector("text=оканчивается на", { timeout: 20000 });
+  check("a saved token is shown only by its last characters",
+    (await page.locator("text=not-a-real-token").count()) === 0);
+
+  // The platform rejects it, and the panel has to say so where it was pasted.
+  await page.waitForSelector("text=отверг", { timeout: 30000 });
+  check("a rejected token is explained on the page", true);
+  await shoot(page, "16-bots");
+
+  page.once("dialog", (d) => d.accept());
+  await discordSection.locator('button:has-text("забыть токен")').click();
+  await page.waitForTimeout(1200);
+  check("the token can be forgotten",
+    (await page.locator("text=оканчивается на").count()) === 0);
+
+  /* --- linking a chat account --- */
+
+  await page.click('a:has-text("Настройки")');
+  await page.waitForSelector("text=Discord и Telegram", { timeout: 20000 });
+
+  await page.locator("div", { hasText: /^Discord/ }).locator('button:has-text("Получить код")')
+    .first().click();
+  await page.waitForSelector("text=/link", { timeout: 20000 });
+  // Scoped to the section: the theme editor shows hex colours in <code> too,
+  // and an unscoped locator picks up whichever comes first in the document.
+  const linkSection = page.locator("section", { hasText: "Discord и Telegram" }).first();
+  const codeText = await linkSection.locator("code").first().innerText();
+  check("a linking code is issued in the form people retype",
+    /^\/link [A-Z2-9]{4}-[A-Z2-9]{4}$/.test(codeText.trim()), codeText);
+  check("the code says how long it lasts",
+    (await page.locator("text=осталось").count()) > 0);
+  await shoot(page, "17-linking");
+
   check("the page produced no uncaught errors", consoleErrors.length === 0, consoleErrors.join("; "));
 
   /* --- API documentation ---

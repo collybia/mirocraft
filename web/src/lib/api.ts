@@ -752,3 +752,73 @@ export function createApiToken(
 export function deleteApiToken(id: string): Promise<void> {
   return request<void>(`/auth/tokens/${id}`, { method: "DELETE" });
 }
+
+/* --- chat bots --- */
+
+export type BotProvider = "discord" | "telegram";
+export type BotStatus = "off" | "connecting" | "connected" | "failed";
+
+export interface BotSettings {
+  provider: BotProvider;
+  /** A token has been saved. The token itself is never sent to the panel. */
+  configured: boolean;
+  /** The last four characters, so an operator can recognise their bot. */
+  token_hint: string;
+  enabled: boolean;
+  running: boolean;
+  status: BotStatus;
+  error?: string;
+  account?: string;
+  updated_at: string;
+}
+
+export async function listBots(): Promise<BotSettings[]> {
+  const body = await request<ListResponse<BotSettings>>("/admin/bots");
+  return body.items;
+}
+
+/**
+ * Saves a bot's settings.
+ *
+ * The token is optional: leaving it out keeps the stored one, so the switch
+ * can be flipped without pasting the secret again.
+ */
+export function saveBot(
+  provider: BotProvider,
+  patch: { token?: string; enabled?: boolean },
+): Promise<BotSettings> {
+  return request<BotSettings>(`/admin/bots/${provider}`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteBot(provider: BotProvider): Promise<void> {
+  return request<void>(`/admin/bots/${provider}`, { method: "DELETE" });
+}
+
+/* --- linking a chat account --- */
+
+export interface Integration {
+  provider: BotProvider;
+  external_id: string;
+  created_at: string;
+}
+
+export async function listIntegrations(): Promise<Integration[]> {
+  const body = await request<ListResponse<Integration>>("/integrations");
+  return body.items;
+}
+
+export function createLinkCode(
+  provider: BotProvider,
+): Promise<{ code: string; expires_at: string }> {
+  return request<{ code: string; expires_at: string }>(
+    `/integrations/${provider}/code`,
+    { method: "POST" },
+  );
+}
+
+export function unlinkIntegration(provider: BotProvider): Promise<void> {
+  return request<void>(`/integrations/${provider}`, { method: "DELETE" });
+}

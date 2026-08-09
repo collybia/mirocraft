@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import * as api from "./lib/api";
 import { Admin } from "./pages/Admin";
+import { BotSettings } from "./components/BotSettings";
 import { Login } from "./pages/Login";
 import { ServerDetail } from "./pages/ServerDetail";
 import { Servers } from "./pages/Servers";
@@ -62,6 +63,7 @@ export function App() {
                 anyway, but a page that loads and then fails on every request
                 reads as broken rather than as not-for-you. */}
             {user.role === "admin" && <Route path="/admin" element={<Admin me={user} />} />}
+            {user.role === "admin" && <Route path="/bots" element={<BotSettings />} />}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>
