@@ -102,6 +102,12 @@ func run(parent context.Context) error {
 	downloader := core.NewDownloader(filepath.Join(cfg.DataDir, "cache", "cores"), log)
 	javaMgr := java.NewManager(filepath.Join(cfg.DataDir, "java"), log)
 	provisioner := daemon.NewProvisioner(cores, downloader, javaMgr, log)
+	// A separate manager and a separate directory for compilers: a server runs
+	// on a JRE, and the JRE has no javac. Only a core that is built here ever
+	// causes this download.
+	jdkMgr := java.NewManager(filepath.Join(cfg.DataDir, "jdk"), log)
+	jdkMgr.Image = java.ImageJDK
+	provisioner.JDK = jdkMgr
 	// A container brings its own Java, so downloading 110 MB of JRE onto the
 	// host to run a server that will never touch it is pure waste.
 	provisioner.SkipHostJava = selected.docker != nil
@@ -159,6 +165,11 @@ func run(parent context.Context) error {
 	}
 	defer func() { _ = db.Close() }()
 	log.Info("database ready", slog.String("path", dbPath))
+
+	// The proxies need the server records: what sits behind a proxy, and which
+	// proxy a server is behind. Set here rather than where the provisioner is
+	// built, because the store is opened after it.
+	provisioner.Servers = db.Servers
 
 	if err := bootstrapAdmin(context.Background(), db, cfg.DataDir, log); err != nil {
 		return err

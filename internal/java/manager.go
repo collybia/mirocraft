@@ -41,6 +41,12 @@ type Manager struct {
 	// Platform overrides the detected host platform, for tests.
 	Platform *Platform
 
+	// Image is the Adoptium image type. Empty means ImageJRE, which is what a
+	// server needs; a manager that installs compilers sets ImageJDK and points
+	// Dir somewhere of its own, so the two never share a directory and neither
+	// has to know about the other.
+	Image string
+
 	log *slog.Logger
 
 	// installs serializes work per major, so two servers starting at once do
@@ -271,7 +277,7 @@ func (m *Manager) install(ctx context.Context, major int) (*Runtime, error) {
 func (m *Manager) latestAsset(ctx context.Context, major int, platform Platform) (*adoptiumAsset, error) {
 	url := fmt.Sprintf(
 		"%s/assets/latest/%d/hotspot?architecture=%s&image_type=%s&os=%s&vendor=eclipse",
-		m.base(), major, platform.Arch, ImageJRE, platform.OS)
+		m.base(), major, platform.Arch, m.image(), platform.OS)
 
 	apiCtx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
@@ -444,3 +450,11 @@ func archiveSuffix(name string) string {
 
 // ErrUnknownArchive is returned for an archive format the manager cannot open.
 var ErrUnknownArchive = errors.New("unsupported archive format")
+
+// image returns the Adoptium image type this manager installs.
+func (m *Manager) image() string {
+	if m.Image == "" {
+		return ImageJRE
+	}
+	return m.Image
+}

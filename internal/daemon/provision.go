@@ -46,6 +46,19 @@ type Provisioner struct {
 	// runtime once; every other server under Docker still pays nothing.
 	SkipHostJava bool
 
+	// JDK installs compilers, for the cores that are built here rather than
+	// downloaded. Separate from Java because a server runs on a JRE and a JRE
+	// has no compiler: BuildTools gets several minutes in and fails with "No
+	// compiler is provided in this environment". Nil means such a core cannot
+	// be built, which is said plainly rather than discovered that way.
+	JDK *java.Manager
+
+	// Servers reads the server records, for the proxy links: a proxy needs to
+	// know what is behind it, and a backend needs to know which proxy it is
+	// behind. Nil disables both, which is what a build without a store looks
+	// like rather than a crash.
+	Servers *store.ServerRepo
+
 	// TargetOS is the system servers will run under, "linux" or "windows".
 	// Empty means this host's. Set to linux when Docker is the runner: the
 	// server runs in a container whatever the host is, and Forge's argument
@@ -191,7 +204,18 @@ func (p *Provisioner) applyManagedConfig(provider core.Provider, srv *store.Serv
 		// config.yml, and where it listens is spelled differently in each.
 		// Writing a properties file it never opens would leave the port the
 		// panel published pointing at nothing.
-		return p.applyProxyPort(srv, dir)
+		if err := p.applyProxyPort(srv, dir); err != nil {
+			return err
+		}
+		return p.applyProxyLinks(srv, dir)
+	}
+
+	// A server behind a proxy has to be told so, or it authenticates players
+	// itself and the proxy's connection is refused as a session mismatch.
+	if srv.ProxyID != "" {
+		if err := p.applyBackendSettings(srv, dir); err != nil {
+			return err
+		}
 	}
 
 	properties, err := gamefiles.LoadProperties(dir)
@@ -230,7 +254,7 @@ func (p *Provisioner) ensureJar(ctx context.Context, build *core.Build, jarPath 
 	if build.NeedsBuild() {
 		// Nothing to download: this core does not exist as a published jar,
 		// so it is compiled here and the result cached like any other.
-		cached, err = p.buildLocally(ctx, provider, build, javaBin)
+		cached, err = p.buildLocally(ctx, provider, build)
 	} else {
 		cached, err = p.Downloader.Fetch(ctx, build)
 	}

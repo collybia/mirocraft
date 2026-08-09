@@ -23,7 +23,22 @@ export function ServerOptions({ server, onSaved }: Props) {
     java_args: server.java_args,
     auto_start: server.auto_start,
     auto_restart: server.auto_restart,
+    proxy_id: server.proxy_id ?? "",
   });
+
+  // The proxies this account owns, for the picker below. Read once: the list
+  // changes when someone creates a proxy, not while a form is open.
+  const [proxies, setProxies] = useState<api.Server[]>([]);
+  useEffect(() => {
+    void api
+      .listServers()
+      .then(async (servers) => {
+        const cores = await api.listCores();
+        const proxyCores = new Set(cores.filter((c) => c.kind === "proxy").map((c) => c.id));
+        setProxies(servers.filter((s) => proxyCores.has(s.core) && s.id !== server.id));
+      })
+      .catch(() => setProxies([]));
+  }, [server.id]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -40,7 +55,8 @@ export function ServerOptions({ server, onSaved }: Props) {
     draft.port !== server.port ||
     draft.java_args !== server.java_args ||
     draft.auto_start !== server.auto_start ||
-    draft.auto_restart !== server.auto_restart;
+    draft.auto_restart !== server.auto_restart ||
+    draft.proxy_id !== (server.proxy_id ?? "");
 
   const running = server.status === "running" || server.status === "starting";
 
@@ -138,6 +154,28 @@ export function ServerOptions({ server, onSaved }: Props) {
           Поднимать после падения
         </label>
 
+        {proxies.length > 0 && (
+          <label className="grid gap-1">
+            <span className="text-sm text-muted">За каким прокси</span>
+            <select
+              className="field w-64"
+              value={draft.proxy_id}
+              onChange={(e) => setDraft({ ...draft, proxy_id: e.target.value })}
+            >
+              <option value="">напрямую, без прокси</option>
+              {proxies.map((proxy) => (
+                <option key={proxy.id} value={proxy.id}>
+                  {proxy.name}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-muted">
+              Панель сама пропишет сервер в конфигурацию прокси и выключит здесь online-mode:
+              игрока проверяет прокси, и вторая проверка не проходит.
+            </span>
+          </label>
+        )}
+
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -159,6 +197,7 @@ export function ServerOptions({ server, onSaved }: Props) {
                 java_args: server.java_args,
                 auto_start: server.auto_start,
                 auto_restart: server.auto_restart,
+                proxy_id: server.proxy_id ?? "",
               })
             }
           >

@@ -13,7 +13,8 @@ import (
 type ServerRepo struct{ db *sql.DB }
 
 const serverColumns = `id, owner_id, name, core, version, kind, status, ram_mb, port,
-	java_args, dir, jar_name, auto_start, auto_restart, eula_accepted, created_at, updated_at`
+	java_args, dir, jar_name, auto_start, auto_restart, eula_accepted, proxy_id,
+	created_at, updated_at`
 
 // ServerFilter narrows a listing. Empty fields are ignored.
 type ServerFilter struct {
@@ -39,9 +40,10 @@ func (r *ServerRepo) Create(ctx context.Context, s *Server) error {
 
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO servers (`+serverColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		s.ID, s.OwnerID, s.Name, s.Core, s.Version, s.Kind, s.Status, s.RAMMb, s.Port,
 		s.JavaArgs, s.Dir, s.JarName, s.AutoStart, s.AutoRestart, s.EULAAccepted,
+		nullableString(s.ProxyID),
 		formatTime(s.CreatedAt), formatTime(s.UpdatedAt))
 	if err != nil {
 		if isUniqueViolation(err, "idx_servers_port", "servers.port") {
@@ -137,11 +139,11 @@ func (r *ServerRepo) Update(ctx context.Context, s *Server) error {
 		UPDATE servers SET
 			name = ?, core = ?, version = ?, kind = ?, status = ?, ram_mb = ?, port = ?,
 			java_args = ?, dir = ?, jar_name = ?, auto_start = ?, auto_restart = ?,
-			eula_accepted = ?, updated_at = ?
+			eula_accepted = ?, proxy_id = ?, updated_at = ?
 		WHERE id = ?`,
 		s.Name, s.Core, s.Version, s.Kind, s.Status, s.RAMMb, s.Port,
 		s.JavaArgs, s.Dir, s.JarName, s.AutoStart, s.AutoRestart, s.EULAAccepted,
-		formatTime(s.UpdatedAt), s.ID)
+		nullableString(s.ProxyID), formatTime(s.UpdatedAt), s.ID)
 	if err != nil {
 		if isUniqueViolation(err, "idx_servers_port", "servers.port") {
 			return ErrPortInUse
@@ -233,12 +235,13 @@ func scanServer(row rowScanner) (*Server, error) {
 		autoStart    int
 		autoRestart  int
 		eulaAccepted int
+		proxyID      sql.NullString
 		createdAt    string
 		updatedAt    string
 	)
 	err := row.Scan(&s.ID, &s.OwnerID, &s.Name, &s.Core, &s.Version, &s.Kind, &s.Status,
 		&s.RAMMb, &s.Port, &s.JavaArgs, &s.Dir, &s.JarName,
-		&autoStart, &autoRestart, &eulaAccepted, &createdAt, &updatedAt)
+		&autoStart, &autoRestart, &eulaAccepted, &proxyID, &createdAt, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -246,6 +249,7 @@ func scanServer(row rowScanner) (*Server, error) {
 		return nil, fmt.Errorf("scanning server: %w", err)
 	}
 
+	s.ProxyID = proxyID.String
 	s.AutoStart = autoStart != 0
 	s.AutoRestart = autoRestart != 0
 	s.EULAAccepted = eulaAccepted != 0
@@ -256,4 +260,28 @@ func scanServer(row rowScanner) (*Server, error) {
 		return nil, fmt.Errorf("parsing server updated_at: %w", err)
 	}
 	return &s, nil
+}
+
+// Backends returns the servers sitting behind a proxy, by name.
+//
+// Ordered by name because that is the order they will be written into the
+// proxy's configuration, and a configuration that reshuffles itself on every
+// start is one an operator cannot diff.
+func (r *ServerRepo) Backends(ctx context.Context, proxyID string) ([]*Server, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+serverColumns+` FROM servers WHERE proxy_id = ? ORDER BY name`, proxyID)
+	if err != nil {
+		return nil, fmt.Errorf("listing the servers behind proxy %s: %w", proxyID, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []*Server
+	for rows.Next() {
+		server, err := scanServer(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, server)
+	}
+	return out, rows.Err()
 }

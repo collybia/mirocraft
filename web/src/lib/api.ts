@@ -57,6 +57,8 @@ export interface Server {
   auto_start: boolean;
   auto_restart: boolean;
   eula_accepted: boolean;
+  /** The proxy this server sits behind, empty when it is reached directly. */
+  proxy_id?: string;
   created_at: string;
   metrics?: ServerMetrics | null;
 }
@@ -527,6 +529,7 @@ export function patchServer(
     java_args?: string;
     auto_start?: boolean;
     auto_restart?: boolean;
+    proxy_id?: string;
   },
 ): Promise<Server> {
   return request<Server>(`/servers/${id}`, { method: "PATCH", body: JSON.stringify(patch) });

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/collybia/mirocraft/internal/core"
 	"github.com/collybia/mirocraft/internal/daemon"
 	"github.com/collybia/mirocraft/internal/mcping"
 	"github.com/collybia/mirocraft/internal/runner"
@@ -84,10 +85,12 @@ type createServerRequest struct {
 }
 
 type patchServerRequest struct {
-	Name        *string `json:"name"`
-	RAMMb       *int    `json:"ram_mb"`
-	Port        *int    `json:"port"`
-	JavaArgs    *string `json:"java_args"`
+	Name     *string `json:"name"`
+	RAMMb    *int    `json:"ram_mb"`
+	Port     *int    `json:"port"`
+	JavaArgs *string `json:"java_args"`
+	// ProxyID links this server to a proxy, or unlinks it when empty.
+	ProxyID     *string `json:"proxy_id"`
 	AutoStart   *bool   `json:"auto_start"`
 	AutoRestart *bool   `json:"auto_restart"`
 }
@@ -119,6 +122,7 @@ type serverResponse struct {
 	AutoStart    bool           `json:"auto_start"`
 	AutoRestart  bool           `json:"auto_restart"`
 	EULAAccepted bool           `json:"eula_accepted"`
+	ProxyID      string         `json:"proxy_id,omitempty"`
 	CreatedAt    time.Time      `json:"created_at"`
 	Metrics      *serverMetrics `json:"metrics,omitempty"`
 }
@@ -128,7 +132,7 @@ func toServerResponse(s *store.Server) serverResponse {
 		ID: s.ID, Name: s.Name, Core: s.Core, Version: s.Version, Kind: s.Kind,
 		Status: s.Status, RAMMb: s.RAMMb, Port: s.Port, JavaArgs: s.JavaArgs,
 		OwnerID: s.OwnerID, AutoStart: s.AutoStart, AutoRestart: s.AutoRestart,
-		EULAAccepted: s.EULAAccepted, CreatedAt: s.CreatedAt,
+		EULAAccepted: s.EULAAccepted, ProxyID: s.ProxyID, CreatedAt: s.CreatedAt,
 	}
 }
 
@@ -445,6 +449,12 @@ func (a *API) handlePatchServer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		server.Port = *req.Port
+	}
+	if req.ProxyID != nil {
+		if err := a.applyProxyLink(r, server, *req.ProxyID); err != nil {
+			writeFieldError(w, "proxy_id", err.Error())
+			return
+		}
 	}
 	if req.JavaArgs != nil {
 		server.JavaArgs = *req.JavaArgs
@@ -844,4 +854,44 @@ func normalizeServerName(name string) (string, error) {
 			"and must start and end with a letter or a digit")
 	}
 	return name, nil
+}
+
+// applyProxyLink validates and sets a server's proxy.
+//
+// Checked here rather than left to the foreign key, because the reasons a link
+// is wrong are worth saying: a proxy behind a proxy, a server pointed at
+// itself, or a proxy belonging to somebody else are three different mistakes
+// and one "constraint failed" for all of them helps nobody.
+func (a *API) applyProxyLink(r *http.Request, server *store.Server, proxyID string) error {
+	if proxyID == "" {
+		server.ProxyID = ""
+		return nil
+	}
+	if proxyID == server.ID {
+		return errors.New("a server cannot be its own proxy")
+	}
+
+	proxy, err := a.store.Servers.GetByID(r.Context(), proxyID)
+	if err != nil {
+		return errors.New("no such proxy")
+	}
+	if a.cores != nil {
+		provider, err := a.cores.Get(proxy.Core)
+		if err != nil || provider.Kind() != core.KindProxy {
+			return errors.New(proxy.Name + " is a server, not a proxy")
+		}
+	}
+
+	principal, ok := principalFrom(r.Context())
+	if !ok {
+		return errors.New("not authenticated")
+	}
+	// Someone else's proxy is not yours to hide behind: it would put your
+	// server on their address and their players in your world.
+	if !principal.IsAdmin() && proxy.OwnerID != principal.UserID {
+		return errors.New("no such proxy")
+	}
+
+	server.ProxyID = proxyID
+	return nil
 }

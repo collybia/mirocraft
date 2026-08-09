@@ -102,6 +102,11 @@ type Server struct {
 	AutoRestart  bool
 	EULAAccepted bool
 
+	// ProxyID is the proxy this server sits behind, empty when it is reached
+	// directly. A proxy itself never has one: chaining proxies is a thing
+	// people do, but not something the panel arranges.
+	ProxyID string
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

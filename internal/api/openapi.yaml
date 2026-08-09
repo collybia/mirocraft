@@ -2158,6 +2158,11 @@ components:
         auto_start: { type: boolean }
         auto_restart: { type: boolean }
         eula_accepted: { type: boolean }
+        proxy_id:
+          type: string
+          description: |
+            прокси, за которым стоит этот сервер; пусто — сервер доступен
+            напрямую. У самого прокси пусто всегда
         created_at: { type: string, format: date-time }
         metrics:
           nullable: true

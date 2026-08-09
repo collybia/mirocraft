@@ -203,6 +203,15 @@ func parseTime(raw string) (time.Time, error) {
 }
 
 // nullableTime maps a *time.Time onto a nullable column value.
+// nullableString stores an empty string as NULL, so a foreign key that is not
+// set stays out of the way of the constraint.
+func nullableString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 func nullableTime(t *time.Time) any {
 	if t == nil {
 		return nil

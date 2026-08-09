@@ -31,7 +31,7 @@ var ErrBuildToolMissing = errors.New("a program needed to build this core is mis
 // The result is placed in the artifact cache under the same key a download
 // would use, so everything downstream — the copy into the server directory,
 // the reuse by a second server — works the same either way.
-func (p *Provisioner) buildLocally(ctx context.Context, provider core.Provider, build *core.Build, javaBin string) (string, error) {
+func (p *Provisioner) buildLocally(ctx context.Context, provider core.Provider, build *core.Build) (string, error) {
 	builder, ok := provider.(core.LocalBuilder)
 	if !ok {
 		return "", fmt.Errorf("%s has to be compiled but does not say how", build.Core)
@@ -44,9 +44,16 @@ func (p *Provisioner) buildLocally(ctx context.Context, provider core.Provider, 
 		return cached, nil
 	}
 
-	if javaBin == "" {
-		return "", fmt.Errorf("%s has to be compiled, which needs a Java runtime on this host", build.Core)
+	// A JDK rather than the runtime the server will use: compiling needs
+	// javac, and the JRE the panel installs does not have one.
+	if p.JDK == nil {
+		return "", fmt.Errorf("%s has to be compiled, which needs a JDK this daemon was not given", build.Core)
 	}
+	jdk, err := p.JDK.Ensure(ctx, build.JavaMajor)
+	if err != nil {
+		return "", fmt.Errorf("preparing a JDK to compile %s: %w", build.Core, err)
+	}
+	javaBin := jdk.Bin
 	// BuildTools clones the sources, so git has to be there — except on
 	// Windows, where it downloads a portable git of its own. Observed rather
 	// than assumed: the first run here pulled PortableGit into the work

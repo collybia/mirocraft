@@ -24,9 +24,19 @@ import (
 // AdoptiumAPI is the Adoptium v3 API root.
 const AdoptiumAPI = "https://api.adoptium.net/v3"
 
-// ImageJRE is the image type installed. The JDK would also work, and is four
+// The Adoptium image types.
+//
+// A server runs on the JRE, which is what the panel installs: the JDK is four
 // times the download for tools a server never invokes.
-const ImageJRE = "jre"
+//
+// The exception is a core that has to be compiled. BuildTools runs javac, and
+// a JRE has no compiler — maven fails with "No compiler is provided in this
+// environment", several minutes into a build. Found by running it, which is
+// the only way it could have been found.
+const (
+	ImageJRE = "jre"
+	ImageJDK = "jdk"
+)
 
 // Errors.
 var (
