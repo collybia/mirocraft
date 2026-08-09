@@ -183,6 +183,16 @@ function Main {
         $adminFile = Join-Path $Scratch 'config\data\initial-admin.txt'
         Test-Check 'пароль администратора сгенерирован' (Test-Path $adminFile)
 
+        # Напечатан, а не спрятан в файл: между «установлено» и «вошёл» не
+        # должно быть шага «найди и открой».
+        $printedPassword = if (Test-Path $adminFile) {
+            $stored = (Get-Content $adminFile -Raw)
+            if ($stored -match '(?m)^password:\s*(.+)$') { $Matches[1].Trim() } else { '' }
+        } else { '' }
+        Test-Check 'логин напечатан в вывод установщика' ($output -match 'Логин:\s+admin')
+        Test-Check 'пароль напечатан в вывод установщика' `
+            ($printedPassword -and $output -match [regex]::Escape($printedPassword))
+
         # Остановка должна проходить штатно: служба, которая не отвечает
         # диспетчеру, убивается вместе со всеми запущенными мирами.
         $stopped = $false

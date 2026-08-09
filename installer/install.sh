@@ -37,6 +37,10 @@ MIROCRAFT_BASE_URL="${MIROCRAFT_BASE_URL:-}"
 #   1  free subdomain   2  own domain   3  no domain, address only
 # Set it to run unattended; without it the script asks.
 MIROCRAFT_MODE="${MIROCRAFT_MODE:-}"
+
+# The port the panel listens on. Empty means 8080, or the next free one when
+# something already holds it.
+MIROCRAFT_PORT="${MIROCRAFT_PORT:-}"
 MIROCRAFT_ASSUME_YES="${MIROCRAFT_ASSUME_YES:-}"
 
 # Worked out from the configuration at the end, and printed.
@@ -59,6 +63,60 @@ warn() { printf '%s!%s %s\n' "${C_YELLOW}" "${C_OFF}" "$*" >&2; }
 die()  { printf '%s✗%s %s\n' "${C_RED}" "${C_OFF}" "$*" >&2; exit 1; }
 
 # --- checks ----------------------------------------------------------------
+
+# port_in_use reports whether anything is already listening on a port.
+#
+# ss where it exists, netstat where it does not, and a connection attempt as a
+# last resort: this has to work on a minimal image, and being wrong in the
+# "free" direction is the expensive direction — the service gets installed and
+# then cannot start.
+port_in_use() {
+    local port="$1"
+
+    if command -v ss >/dev/null 2>&1; then
+        ss -lnt 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}$"
+        return
+    fi
+    if command -v netstat >/dev/null 2>&1; then
+        netstat -lnt 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}$"
+        return
+    fi
+    (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null && { exec 3<&-; return 0; }
+    return 1
+}
+
+# choose_port picks the port the panel will listen on.
+#
+# Checked rather than assumed. 8080 is the most contended port on any machine
+# that already runs anything, and writing it blind produces a service in a
+# restart loop plus a browser landing on whatever else is there — which reads
+# as "the panel is broken" and not as "the port was taken". That is exactly how
+# the first real install of this went.
+#
+# Only ever called for a new configuration: on an upgrade the existing one is
+# kept, and the port already in it is this daemon's own.
+choose_port() {
+    local port="${MIROCRAFT_PORT:-8080}"
+
+    if ! port_in_use "${port}"; then
+        printf '%s
+' "${port}"
+        return
+    fi
+
+    local candidate
+    for candidate in 8443 9090 8090 8100; do
+        if ! port_in_use "${candidate}"; then
+            warn "Порт ${port} уже занят другой программой, беру ${candidate}."
+            printf '%s
+' "${candidate}"
+            return
+        fi
+    done
+
+    die "Порт ${port} занят, и запасные тоже. Освободите порт или задайте свой:
+     MIROCRAFT_PORT=9443 curl -fsSL .../install.sh | sudo -E bash"
+}
 
 require_root() {
     if [ "$(id -u)" -ne 0 ]; then
@@ -259,6 +317,9 @@ write_config() {
 
     mkdir -p "${CONFIG_DIR}"
 
+    local port
+    port="$(choose_port)"
+
     local dns_provider="" dns_zone="" dns_token="" dns_sub=""
     local tls_mode="self-signed" tls_domain="" tls_email="" tls_challenge="http-01" accept_tos="false"
 
@@ -318,7 +379,7 @@ write_config() {
 # Конфигурация Mirocraft. Полный список полей с пояснениями —
 # https://github.com/${REPO}/blob/master/mirocraft.example.yaml
 
-addr: ":8080"
+addr: ":${port}"
 data_dir: "${DATA_DIR}"
 
 log:
@@ -503,10 +564,54 @@ main() {
         say "           именно ваш сервер, некому. Панель говорит о том же на своей"
         say "           странице настроек.${C_OFF}"
     fi
-    say "  Логин и пароль администратора: ${DATA_DIR}/initial-admin.txt"
+    print_credentials
     say "  Журнал:  ${C_DIM}journalctl -u ${SERVICE_NAME} -f${C_OFF}"
     say ""
-    say "  ${C_DIM}Смените пароль после первого входа и удалите файл с ним.${C_OFF}"
+}
+
+# print_credentials shows the login and the password here, in the terminal the
+# operator is already looking at.
+#
+# The daemon prints them on its first start, but it starts as a service, so
+# they go to the journal and not to anybody's screen. Sending the operator to
+# open a file afterwards is one more step between "installed" and "logged in",
+# and it is the step where an install stops feeling finished.
+#
+# The file stays where it is: a terminal gets closed, and then it is the only
+# copy left.
+print_credentials() {
+    local file="${DATA_DIR}/initial-admin.txt"
+
+    # Written on the first start, which has just happened; give it a moment
+    # rather than racing it.
+    local waited=0
+    while [ ! -f "${file}" ] && [ "${waited}" -lt 10 ]; do
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    if [ ! -f "${file}" ]; then
+        # An upgrade over an existing install, where the operator saved the
+        # password and deleted the file, as they were asked to.
+        say "  Вход:    ${C_DIM}учётной записью, которая у вас уже есть${C_OFF}"
+        return
+    fi
+
+    local login password
+    login="$(sed -n 's/^login: //p' "${file}" | head -1)"
+    password="$(sed -n 's/^password: //p' "${file}" | head -1)"
+
+    if [ -z "${login}" ] || [ -z "${password}" ]; then
+        say "  Логин и пароль администратора: ${file}"
+        return
+    fi
+
+    say ""
+    say "  ${C_BOLD}Логин:   ${login}${C_OFF}"
+    say "  ${C_BOLD}Пароль:  ${password}${C_OFF}"
+    say ""
+    say "  ${C_DIM}Смените пароль после первого входа. Он также лежит в"
+    say "  ${file} — удалите файл, когда сохраните.${C_OFF}"
     say ""
 }
 

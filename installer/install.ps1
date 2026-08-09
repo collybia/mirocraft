@@ -72,6 +72,39 @@ $FirewallRule = "$ServiceName panel"
 function Write-Step { param([string]$Text) Write-Host "-> $Text" }
 function Write-Ok   { param([string]$Text) Write-Host "OK  $Text" -ForegroundColor Green }
 function Write-Warn { param([string]$Text) Write-Host "!   $Text" -ForegroundColor Yellow }
+
+# Test-PortFree сообщает, свободен ли порт.
+#
+# Спрашивается у системы, а не предполагается: 8080 — самый занятый порт на
+# любой машине, где уже что-то работает, и записать его вслепую значит
+# получить службу, которая не стартует, и браузер, который попадает в чужой
+# сервис. Именно так прошла первая настоящая установка.
+function Test-PortFree {
+    param([int]$Candidate)
+
+    $listeners = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()
+    foreach ($listener in $listeners) {
+        if ($listener.Port -eq $Candidate) { return $false }
+    }
+    return $true
+}
+
+# Select-Port выбирает порт для панели: заданный, если он свободен, иначе
+# первый свободный из запасных.
+function Select-Port {
+    param([int]$Preferred)
+
+    if (Test-PortFree -Candidate $Preferred) { return $Preferred }
+
+    foreach ($candidate in 8443, 9090, 8090, 8100) {
+        if (Test-PortFree -Candidate $candidate) {
+            Write-Warn "Порт $Preferred уже занят другой программой, беру $candidate."
+            return $candidate
+        }
+    }
+
+    throw "Порт $Preferred занят, и запасные тоже. Освободите порт или задайте свой: -Port 9443"
+}
 function Stop-WithError {
     param([string]$Text)
     Write-Host "X   $Text" -ForegroundColor Red
@@ -254,6 +287,10 @@ function Write-Configuration {
     }
 
     New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
+
+    # Только для новой конфигурации: при обновлении порт берётся из неё, и он
+    # занят этой же службой.
+    $Port = Select-Port -Preferred $Port
     New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
     $dnsProvider = ''; $dnsZone = ''; $dnsToken = ''
@@ -576,10 +613,47 @@ function Main {
         Write-Host '           Это ожидаемо: соединение шифруется, но подтвердить, что это' -ForegroundColor DarkGray
         Write-Host '           именно ваш сервер, некому.' -ForegroundColor DarkGray
     }
-    Write-Host "  Логин и пароль администратора: $(Join-Path $DataDir 'initial-admin.txt')"
+    Show-Credentials
     Write-Host ''
-    Write-Host '  Смените пароль после первого входа и удалите файл с ним.'
+}
+
+# Show-Credentials печатает логин и пароль здесь же, в том окне, куда человек
+# и так смотрит.
+#
+# Демон печатает их при первом старте, но стартует он службой — значит, в
+# журнал, а не на экран. Отправлять оператора открывать файл — это лишний шаг
+# между «установлено» и «вошёл», и именно на нём установка перестаёт
+# ощущаться законченной. Файл при этом остаётся: окно закроют, и он окажется
+# единственной копией.
+function Show-Credentials {
+    $file = Join-Path $DataDir 'initial-admin.txt'
+
+    $waited = 0
+    while (-not (Test-Path $file) -and $waited -lt 10) {
+        Start-Sleep -Seconds 1
+        $waited++
+    }
+
+    if (-not (Test-Path $file)) {
+        Write-Host '  Вход:    учётной записью, которая у вас уже есть' -ForegroundColor DarkGray
+        return
+    }
+
+    $text = Get-Content $file -Raw
+    $login = if ($text -match '(?m)^login:\s*(.+)$') { $Matches[1].Trim() } else { '' }
+    $password = if ($text -match '(?m)^password:\s*(.+)$') { $Matches[1].Trim() } else { '' }
+
+    if (-not $login -or -not $password) {
+        Write-Host "  Логин и пароль администратора: $file"
+        return
+    }
+
     Write-Host ''
+    Write-Host "  Логин:   $login"
+    Write-Host "  Пароль:  $password"
+    Write-Host ''
+    Write-Host '  Смените пароль после первого входа. Он также лежит в' -ForegroundColor DarkGray
+    Write-Host "  $file — удалите файл, когда сохраните." -ForegroundColor DarkGray
 }
 
 Main

@@ -5,6 +5,10 @@
 #   ./installer/test-install.sh                 # Ubuntu 24.04 and Debian 12
 #   ./installer/test-install.sh ubuntu:24.04    # one image
 #
+#   MIROCRAFT_TEST_RELEASE=1 ./installer/test-install.sh
+#       also installs from the published GitHub release, which is the path an
+#       operator takes. Needs the network and a release that exists.
+#
 # An installer is the one piece of this project that cannot be unit tested:
 # it creates users, writes systemd units and installs packages, and a stub
 # for all of that would only test the stub. So it is checked the only way that
@@ -32,6 +36,7 @@ host_path() {
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGES=("jrei/systemd-ubuntu:24.04" "jrei/systemd-debian:12")
+INSTALL_URL="${MIROCRAFT_INSTALL_URL:-https://raw.githubusercontent.com/collybia/mirocraft/master/installer/install.sh}"
 if [ "$#" -gt 0 ]; then
     IMAGES=("$@")
 fi
@@ -149,6 +154,13 @@ run_for_image() {
     check "the service is running" "$(yes_no 'systemctl is-active --quiet mirocraft')"
     check "the service starts on boot" "$(yes_no 'systemctl is-enabled --quiet mirocraft')"
 
+    # Printed, not filed away. The step between "installed" and "logged in"
+    # should not be "go and open a file".
+    local password
+    password="$(in_container "sed -n 's/^password: //p' /var/lib/mirocraft/initial-admin.txt | head -1" 2>/dev/null | tr -d '')"
+    check "the login is printed"         "$(case "${output}" in *"Логин:"*admin*) echo yes ;; *) echo no ;; esac)"
+    check "the password is printed"         "$(if [ -n "${password}" ] && case "${output}" in *"${password}"*) true ;; *) false ;; esac; then echo yes; else echo no; fi)"
+
     # Not as root: a panel that runs other people's Minecraft servers should
     # not be one of them running as root.
     local user
@@ -241,6 +253,59 @@ check_download_path() {
         "$(yes_no 'systemctl is-active --quiet mirocraft && curl -fsk https://127.0.0.1:8080/api/v1/health | grep -q ok')"
 }
 
+# run_from_release installs the way an operator does: no binary handed over,
+# no base URL redirected — the script downloads the published release and
+# verifies it against the published checksums.
+#
+# This is the case the rest of this file did not cover. Every check above hands
+# the installer a locally built binary through MIROCRAFT_BINARY, which tests
+# everything except the download — and the download is what failed the first
+# time anyone ran the installer for real: the workflow had never been tagged,
+# so releases/latest/download/... answered 404 and the install stopped after
+# creating the user.
+#
+# Needs the network and a published release, so it is opt-in.
+run_from_release() {
+    local image="$1"
+    printf '
+=== %s, from the published release ===
+' "${image}"
+
+    start_container "${image}"
+    trap stop_container EXIT
+
+    local output
+    output="$(docker exec -e MIROCRAFT_MODE=3 -e MIROCRAFT_ASSUME_YES=1 "${CONTAINER}" bash -c         "curl -fsSL ${INSTALL_URL} | bash" 2>&1)" || {
+        printf '%s
+' "${output}" >&2
+        check "the installer completes against the real release" "no"
+        stop_container; trap - EXIT
+        return
+    }
+    check "the installer completes against the real release" "yes"
+    check "it verified the checksum"         "$(case "${output}" in *"Контрольная сумма сошлась"*) echo yes ;; *) echo no ;; esac)"
+    check "the service is running" "$(yes_no 'systemctl is-active --quiet mirocraft')"
+    check "the panel answers over https"         "$(yes_no 'curl -fsk https://127.0.0.1:8080/api/v1/health | grep -q ok')"
+
+    # The state an operator is left in by a failed attempt: the user exists,
+    # nothing else does. Re-running has to finish the job rather than trip
+    # over what is already there.
+    stop_container; trap - EXIT
+    start_container "${image}"
+    trap stop_container EXIT
+
+    in_container "useradd --system --home-dir /var/lib/mirocraft --shell /usr/sbin/nologin mirocraft" >/dev/null 2>&1
+    if docker exec -e MIROCRAFT_MODE=3 -e MIROCRAFT_ASSUME_YES=1 "${CONTAINER}" bash -c         "curl -fsSL ${INSTALL_URL} | bash" >/dev/null 2>&1; then
+        check "a re-run after a failed attempt completes" "yes"
+    else
+        check "a re-run after a failed attempt completes" "no"
+    fi
+    check "and leaves a running service"         "$(yes_no 'systemctl is-active --quiet mirocraft')"
+
+    stop_container
+    trap - EXIT
+}
+
 main() {
     command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 2; }
 
@@ -255,6 +320,9 @@ main() {
 
     for image in "${IMAGES[@]}"; do
         run_for_image "${image}"
+        if [ -n "${MIROCRAFT_TEST_RELEASE:-}" ]; then
+            run_from_release "${image}"
+        fi
     done
 
     printf '\n'
