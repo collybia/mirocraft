@@ -815,6 +815,7 @@ func TestEveryDocumentedRouteIsRegistered(t *testing.T) {
 		{http.MethodDelete, "/api/v1/servers/" + id + "/schedules/01X"},
 		{http.MethodPost, "/api/v1/servers/" + id + "/schedules/01X/run"},
 		{http.MethodGet, "/api/v1/dns"},
+		{http.MethodGet, "/api/v1/tls"},
 		{http.MethodGet, "/api/v1/catalog/search"},
 		{http.MethodGet, "/api/v1/catalog/projects/01X"},
 		{http.MethodGet, "/api/v1/servers/" + id + "/catalog"},

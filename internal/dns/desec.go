@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -64,7 +65,32 @@ func (d *DeSEC) Name() string { return "deSEC" }
 func (d *DeSEC) Zone() string { return d.domain }
 
 func (d *DeSEC) Capabilities() Capabilities {
-	return Capabilities{SRV: true, Subdomains: true, MinTTL: DeSECMinTTL}
+	return Capabilities{SRV: true, DNS01: true, Subdomains: true, MinTTL: DeSECMinTTL}
+}
+
+// EnsureTXT publishes a TXT record.
+//
+// The values are quoted here because deSEC stores record content in its
+// presentation form: an unquoted token is rejected outright, which is the kind
+// of thing that costs an afternoon the first time.
+func (d *DeSEC) EnsureTXT(ctx context.Context, sub string, values []string) error {
+	if err := ValidateTXTSub(sub); err != nil {
+		return err
+	}
+
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, strconv.Quote(value))
+	}
+	return d.putRRSets(ctx, []rrset{{Subname: sub, Type: "TXT", TTL: d.ttl, Records: quoted}})
+}
+
+// DeleteTXT removes a TXT record by writing it empty.
+func (d *DeSEC) DeleteTXT(ctx context.Context, sub string) error {
+	if err := ValidateTXTSub(sub); err != nil {
+		return err
+	}
+	return d.putRRSets(ctx, []rrset{{Subname: sub, Type: "TXT", TTL: d.ttl, Records: []string{}}})
 }
 
 // rrset is deSEC's record-set document.

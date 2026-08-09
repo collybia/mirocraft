@@ -14,12 +14,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/collybia/mirocraft/internal/api"
 	"github.com/collybia/mirocraft/internal/backup"
 	"github.com/collybia/mirocraft/internal/catalog"
+	"github.com/collybia/mirocraft/internal/certs"
 	"github.com/collybia/mirocraft/internal/config"
 	"github.com/collybia/mirocraft/internal/core"
 	"github.com/collybia/mirocraft/internal/daemon"
@@ -165,6 +167,13 @@ func run() error {
 		}
 	}
 
+	// The certificate comes last of the startup pieces because it may depend
+	// on the DNS provider: the dns-01 challenge publishes through it.
+	certManager, err := buildCertManager(cfg, dnsProvider, log)
+	if err != nil {
+		return err
+	}
+
 	restAPI := api.New(api.Options{
 		Store:       db,
 		Console:     selected.runner,
@@ -175,6 +184,7 @@ func run() error {
 		Catalog:     addons,
 		DNS:         dnsPublisher(dnsProvider),
 		DNSWatcher:  dnsWatcher,
+		Certs:       certStatus(certManager),
 		Logger:      log,
 		DataDir:     cfg.DataDir,
 		TicketTTL:   cfg.Console.TicketTTL,
@@ -196,6 +206,44 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Obtained before the listener opens: serving HTTPS with no certificate
+	// answers every request with a handshake failure, which looks like the
+	// panel being down rather than like a certificate problem.
+	var httpChallenge *http.Server
+	if certManager != nil && certManager.Enabled() {
+		if handler := certManager.HTTPChallengeHandler(); handler != nil {
+			httpChallenge = &http.Server{
+				Addr:              httpChallengeAddr(cfg),
+				Handler:           handler,
+				ReadHeaderTimeout: 10 * time.Second,
+			}
+			go func() {
+				if err := httpChallenge.ListenAndServe(); err != nil &&
+					!errors.Is(err, http.ErrServerClosed) {
+					// Not fatal by itself, but the certificate cannot be
+					// obtained without it, so it is worth saying loudly.
+					log.Error("the http-01 challenge listener failed; a certificate "+
+						"cannot be obtained this way",
+						slog.String("addr", httpChallenge.Addr), slog.String("error", err.Error()))
+				}
+			}()
+		}
+
+		if err := certManager.Start(ctx); err != nil {
+			return fmt.Errorf("obtaining a certificate: %w", err)
+		}
+		srv.TLSConfig = certManager.TLSConfig()
+
+		status := certManager.Status()
+		log.Info("serving https",
+			slog.String("mode", status.Mode), slog.String("domain", status.Domain),
+			slog.Bool("trusted", status.Trusted))
+		if !status.Trusted {
+			log.Warn("the certificate is self-signed, so browsers will warn about it; " +
+				"the panel says so too")
+		}
+	}
+
 	// Scheduled backups tick rather than sleeping to the next due time, so a
 	// schedule added while the daemon runs is picked up without a restart.
 	go restAPI.RunBackupSchedules(ctx, time.Minute)
@@ -216,7 +264,15 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		var err error
+		if srv.TLSConfig != nil {
+			// The certificate comes from the manager, so no files are named
+			// here.
+			err = srv.ListenAndServeTLS("", "")
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- fmt.Errorf("http server: %w", err)
 			return
 		}
@@ -239,12 +295,67 @@ func run() error {
 	if err := selected.runner.Shutdown(shutdownCtx); err != nil {
 		log.Error("shutting down runner failed", slog.String("error", err.Error()))
 	}
+	if httpChallenge != nil {
+		_ = httpChallenge.Shutdown(shutdownCtx)
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutting down http server: %w", err)
 	}
 
 	log.Info("stopped")
 	return nil
+}
+
+// buildCertManager assembles the certificate manager from the configuration.
+func buildCertManager(cfg config.Config, provider dns.Provider, log *slog.Logger) (*certs.Manager, error) {
+	if !cfg.TLS.Enabled() {
+		return nil, nil
+	}
+
+	domain := strings.TrimSpace(cfg.TLS.Domain)
+	if domain == "" {
+		// The name the panel already publishes is the one a browser will use,
+		// so repeating it in two places is a chance for them to disagree.
+		domain = dns.FQDN(cfg.DNS.Sub, cfg.DNS.Zone)
+	}
+
+	var solver certs.DNSSolver
+	if provider != nil {
+		solver = provider
+	}
+
+	return certs.New(certs.Config{
+		Mode:         cfg.TLS.Mode,
+		Domain:       domain,
+		Email:        cfg.TLS.Email,
+		Challenge:    cfg.TLS.Challenge,
+		DirectoryURL: cfg.TLS.DirectoryURL,
+		Dir:          filepath.Join(cfg.DataDir, "certs"),
+		AcceptTOS:    cfg.TLS.AcceptTOS,
+	}, solver, log)
+}
+
+// httpChallengeAddr is where the HTTP-01 challenge is answered.
+//
+// Port 80 by default because the protocol says so: the authority fetches the
+// token over plain HTTP on 80 and will not follow a redirect to another port.
+func httpChallengeAddr(cfg config.Config) string {
+	if addr := strings.TrimSpace(cfg.TLS.HTTPAddr); addr != "" {
+		return addr
+	}
+	return ":80"
+}
+
+// certStatus hands the API a status reporter, or nothing when TLS is off.
+//
+// A typed nil in an interface is not nil, so a plain assignment would give the
+// API a non-nil field wrapping a nil manager, and the status endpoint would
+// panic on the first request.
+func certStatus(m *certs.Manager) api.CertStatus {
+	if m == nil {
+		return nil
+	}
+	return m
 }
 
 // dnsPublisher hands the API a publisher, or nothing when DNS is off.

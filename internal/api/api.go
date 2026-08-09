@@ -51,6 +51,10 @@ type Options struct {
 	// endpoint to report.
 	DNSWatcher *dns.Watcher
 
+	// Certs reports the certificate the panel is served with, so the panel can
+	// warn when it is self-signed. Nil means plain HTTP.
+	Certs CertStatus
+
 	// Cores is the registry the catalogue asks which loader a server takes.
 	Cores *core.Registry
 	// Catalog searches and resolves add-ons. Nil disables the catalogue
@@ -96,6 +100,7 @@ type API struct {
 	catalog     Catalog
 	dns         DNSPublisher
 	dnsWatcher  *dns.Watcher
+	certs       CertStatus
 	events      *events.Bus
 	ping        Pinger
 	tickets     *TicketStore
@@ -175,6 +180,7 @@ func New(opts Options) *API {
 		catalog:      opts.Catalog,
 		dns:          opts.DNS,
 		dnsWatcher:   opts.DNSWatcher,
+		certs:        opts.Certs,
 		events:       bus,
 		tickets:      NewTicketStore(opts.TicketTTL),
 		tasks:        newTaskRegistry(),
@@ -267,6 +273,7 @@ func (a *API) authedRoutes() map[string]http.HandlerFunc {
 		"GET /api/v1/servers/{id}/backups/schedule":         a.handleGetSchedule,
 		"PUT /api/v1/servers/{id}/backups/schedule":         a.handlePutSchedule,
 		"GET /api/v1/dns":                                   a.handleDNSStatus,
+		"GET /api/v1/tls":                                   a.handleTLSStatus,
 		"GET /api/v1/catalog/search":                        a.handleCatalogSearch,
 		"GET /api/v1/catalog/projects/{pid}":                a.handleCatalogProject,
 		"GET /api/v1/servers/{id}/catalog":                  a.handleServerContent,

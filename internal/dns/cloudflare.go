@@ -67,7 +67,63 @@ func (c *Cloudflare) Name() string { return "Cloudflare" }
 func (c *Cloudflare) Zone() string { return c.zone }
 
 func (c *Cloudflare) Capabilities() Capabilities {
-	return Capabilities{SRV: true, Subdomains: true, MinTTL: CloudflareMinTTL}
+	return Capabilities{SRV: true, DNS01: true, Subdomains: true, MinTTL: CloudflareMinTTL}
+}
+
+// EnsureTXT publishes a TXT record.
+//
+// Unquoted, unlike deSEC: Cloudflare takes the bare value and adds the
+// presentation quoting itself, so quoting here would publish a token wrapped
+// in literal quote characters that no validator matches.
+func (c *Cloudflare) EnsureTXT(ctx context.Context, sub string, values []string) error {
+	if err := ValidateTXTSub(sub); err != nil {
+		return err
+	}
+	if len(values) == 0 {
+		return c.DeleteTXT(ctx, sub)
+	}
+
+	name := FQDN(sub, c.zone)
+	// A challenge can need two tokens at once — a certificate covering both
+	// the name and its wildcard — so extra values are added rather than
+	// replacing each other.
+	if err := c.upsert(ctx, cfRecord{
+		Type: "TXT", Name: name, Content: values[0], TTL: c.ttl,
+	}); err != nil {
+		return err
+	}
+	for _, value := range values[1:] {
+		body, err := json.Marshal(cfRecord{Type: "TXT", Name: name, Content: value, TTL: c.ttl})
+		if err != nil {
+			return err
+		}
+		zoneID, err := c.resolveZoneID(ctx)
+		if err != nil {
+			return err
+		}
+		if err := c.call(ctx, http.MethodPost, "/zones/"+zoneID+"/dns_records", body, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DeleteTXT removes every TXT record at the name.
+func (c *Cloudflare) DeleteTXT(ctx context.Context, sub string) error {
+	if err := ValidateTXTSub(sub); err != nil {
+		return err
+	}
+
+	existing, err := c.find(ctx, "TXT", FQDN(sub, c.zone))
+	if err != nil {
+		return err
+	}
+	for _, record := range existing {
+		if err := c.delete(ctx, record.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // cfEnvelope is the shape every Cloudflare response takes.

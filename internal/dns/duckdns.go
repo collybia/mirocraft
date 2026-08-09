@@ -70,7 +70,52 @@ func (d *DuckDNS) Zone() string { return d.name + DuckDNSSuffix }
 
 func (d *DuckDNS) Capabilities() Capabilities {
 	// No TTL of its own to report: DuckDNS does not let one be chosen.
-	return Capabilities{SRV: false, Subdomains: false}
+	//
+	// DNS01 is true despite there being no general TXT support, and that is
+	// not a contradiction: DuckDNS publishes exactly one TXT record, served at
+	// _acme-challenge.<name>.duckdns.org, put there specifically so its users
+	// can obtain certificates.
+	return Capabilities{SRV: false, DNS01: true, Subdomains: false}
+}
+
+// EnsureTXT publishes the one TXT record DuckDNS serves.
+//
+// sub must be the ACME challenge label: it is the only name DuckDNS will
+// answer a TXT query for, and pretending otherwise would leave a validator
+// looking at nothing.
+func (d *DuckDNS) EnsureTXT(ctx context.Context, sub string, values []string) error {
+	if sub != ACMEChallengeLabel {
+		return fmt.Errorf("%w: DuckDNS serves a TXT record only at %s.%s",
+			ErrUnsupported, ACMEChallengeLabel, d.Zone())
+	}
+	if len(values) == 0 {
+		return d.DeleteTXT(ctx, sub)
+	}
+	// One value only: the parameter holds a single token, so a certificate
+	// needing two — a name and its wildcard — cannot be issued here. Said
+	// plainly rather than publishing the first and letting the second fail.
+	if len(values) > 1 {
+		return fmt.Errorf("%w: DuckDNS holds one TXT value, but %d were needed "+
+			"(a wildcard certificate needs two)", ErrUnsupported, len(values))
+	}
+
+	return d.call(ctx, url.Values{
+		"domains": {d.name}, "token": {d.token},
+		"txt": {values[0]}, "verbose": {"true"},
+	})
+}
+
+// DeleteTXT clears the TXT record.
+func (d *DuckDNS) DeleteTXT(ctx context.Context, sub string) error {
+	if sub != ACMEChallengeLabel {
+		return fmt.Errorf("%w: DuckDNS serves a TXT record only at %s.%s",
+			ErrUnsupported, ACMEChallengeLabel, d.Zone())
+	}
+	// clear=true wipes the TXT alongside the address, so the record is
+	// overwritten with an empty value instead — the address must survive.
+	return d.call(ctx, url.Values{
+		"domains": {d.name}, "token": {d.token}, "txt": {""}, "verbose": {"true"},
+	})
 }
 
 // EnsureAddress publishes the address for the registered name.

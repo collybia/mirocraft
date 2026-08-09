@@ -104,6 +104,7 @@ type fakeProvider struct {
 	mu        sync.Mutex
 	addresses []netip.Addr
 	srv       []string
+	txt       []string
 	failWith  error
 	caps      Capabilities
 }
@@ -134,6 +135,20 @@ func (f *fakeProvider) EnsureSRV(_ context.Context, sub, target string, port int
 }
 
 func (f *fakeProvider) Cleanup(context.Context, string) error { return nil }
+
+func (f *fakeProvider) EnsureTXT(_ context.Context, sub string, values []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.txt = append(f.txt, sub+"="+strings.Join(values, "|"))
+	return nil
+}
+
+func (f *fakeProvider) DeleteTXT(_ context.Context, sub string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.txt = append(f.txt, sub+"=<removed>")
+	return nil
+}
 
 func (f *fakeProvider) published() []netip.Addr {
 	f.mu.Lock()

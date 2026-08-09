@@ -70,6 +70,8 @@ tags:
     description: поиск и установка плагинов и модов
   - name: dns
     description: имя, по которому доступны панель и серверы
+  - name: tls
+    description: сертификат, которым обслуживается панель
   - name: events
     description: шина событий и вебхуки
   - name: tasks
@@ -1376,6 +1378,21 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/DNSStatus" }
 
+  /tls:
+    get:
+      tags: [tls]
+      summary: Каким сертификатом обслуживается панель
+      description: |
+        Панель показывает отсюда предупреждение о self-signed. Браузер тоже
+        предупредит, но не объяснит, в каком из трёх режимов оказался
+        оператор и почему.
+      responses:
+        "200":
+          description: состояние сертификата
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TLSStatus" }
+
   # --- catalogue ---
 
   /catalog/search:
@@ -2134,6 +2151,22 @@ components:
               type: string
               description: |
                 последняя неудача, если имя может быть устаревшим
+
+    TLSStatus:
+      type: object
+      properties:
+        mode: { type: string, enum: [off, acme, self-signed] }
+        domain: { type: string }
+        trusted:
+          type: boolean
+          description: |
+            false — браузер будет предупреждать: сертификат самоподписанный
+            либо его ещё нет
+        not_after: { type: string, format: date-time }
+        issuer: { type: string }
+        error:
+          type: string
+          description: последняя неудача, если сертификат может быть просрочен
 
     CatalogProject:
       type: object

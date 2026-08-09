@@ -47,6 +47,34 @@ type Config struct {
 	Console  ConsoleConfig `yaml:"console"`
 	Webhooks WebhookConfig `yaml:"webhooks"`
 	DNS      DNSConfig     `yaml:"dns"`
+	TLS      TLSConfig     `yaml:"tls"`
+}
+
+// TLSConfig configures how the panel is served over HTTPS.
+type TLSConfig struct {
+	// Mode is off, acme or self-signed. Off serves plain HTTP, which is the
+	// right answer behind a reverse proxy that terminates TLS itself.
+	Mode string `yaml:"mode"`
+	// Domain the certificate covers. Empty falls back to dns.zone.
+	Domain string `yaml:"domain"`
+	// Email is the ACME account contact; the authority uses it to warn about
+	// expiry.
+	Email string `yaml:"email"`
+	// Challenge is http-01 or dns-01.
+	Challenge string `yaml:"challenge"`
+	// DirectoryURL overrides the certificate authority, for staging or tests.
+	DirectoryURL string `yaml:"directory_url"`
+	// AcceptTOS records that the operator agreed to the authority's terms.
+	AcceptTOS bool `yaml:"accept_tos"`
+	// HTTPAddr is where the HTTP-01 challenge is answered and plain HTTP is
+	// redirected from. Empty means :80.
+	HTTPAddr string `yaml:"http_addr"`
+}
+
+// Enabled reports whether HTTPS is served.
+func (t TLSConfig) Enabled() bool {
+	mode := strings.TrimSpace(t.Mode)
+	return mode != "" && mode != "off"
 }
 
 // DNSConfig configures the name the panel and its servers are reachable by.
@@ -255,6 +283,32 @@ func (c *Config) Validate() error {
 	}
 	if strings.TrimSpace(c.DNS.Provider) == "" && strings.TrimSpace(c.DNS.Token) != "" {
 		problems = append(problems, "dns.token is set but dns.provider is not")
+	}
+
+	switch strings.TrimSpace(c.TLS.Mode) {
+	case "", "off", "self-signed":
+	case "acme":
+		// The domain can come from dns.zone, so only the combination of both
+		// missing is a problem.
+		if strings.TrimSpace(c.TLS.Domain) == "" && strings.TrimSpace(c.DNS.Zone) == "" {
+			problems = append(problems, "tls.domain is required when tls.mode is acme and dns.zone is not set")
+		}
+		if !c.TLS.AcceptTOS {
+			problems = append(problems,
+				"tls.accept_tos must be true to obtain a certificate from a certificate authority")
+		}
+		switch strings.TrimSpace(c.TLS.Challenge) {
+		case "", "http-01":
+		case "dns-01":
+			if !c.DNS.Enabled() {
+				problems = append(problems,
+					"tls.challenge dns-01 needs a configured dns.provider to publish the challenge record")
+			}
+		default:
+			problems = append(problems, "tls.challenge must be http-01 or dns-01")
+		}
+	default:
+		problems = append(problems, "tls.mode must be off, acme or self-signed")
 	}
 
 	if len(problems) > 0 {

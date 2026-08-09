@@ -71,6 +71,19 @@ type Provider interface {
 	// Returns ErrUnsupported where the provider cannot.
 	EnsureSRV(ctx context.Context, sub, target string, port int) error
 
+	// EnsureTXT publishes a TXT record, replacing whatever was there.
+	//
+	// This exists for ACME's DNS-01 challenge, which is the only way to get a
+	// certificate on a host whose port 80 is unreachable — behind a home
+	// router, or on a provider that blocks it.
+	EnsureTXT(ctx context.Context, sub string, values []string) error
+
+	// DeleteTXT removes a TXT record.
+	//
+	// Called after a challenge is answered: a left-behind token is a standing
+	// invitation to anyone who can read the zone.
+	DeleteTXT(ctx context.Context, sub string) error
+
 	// Capabilities reports what this provider can do, so a caller can ask
 	// before trying rather than discovering it from an error.
 	Capabilities() Capabilities
@@ -79,10 +92,19 @@ type Provider interface {
 	Cleanup(ctx context.Context, sub string) error
 }
 
+// ACMEChallengeLabel is the name ACME looks up for a DNS-01 challenge.
+const ACMEChallengeLabel = "_acme-challenge"
+
 // Capabilities describes a provider's limits.
 type Capabilities struct {
 	// SRV reports whether SRV records can be published.
 	SRV bool
+	// DNS01 reports whether the provider can answer an ACME DNS-01 challenge.
+	//
+	// Separate from general TXT support because DuckDNS is a special case: it
+	// publishes no arbitrary TXT record, but it does serve one at
+	// _acme-challenge, precisely so its users can get certificates.
+	DNS01 bool
 	// Subdomains reports whether names other than the registered one can be
 	// used. DuckDNS gives one name and nothing under it.
 	Subdomains bool
@@ -109,6 +131,26 @@ func ValidateSub(sub string) error {
 	for _, label := range strings.Split(sub, ".") {
 		if !subPattern.MatchString(label) {
 			return fmt.Errorf("dns: %q is not a valid hostname label", label)
+		}
+	}
+	return nil
+}
+
+// ValidateTXTSub checks a subdomain that may carry an underscore label.
+//
+// Separate from ValidateSub because the names ACME uses are not hostnames:
+// "_acme-challenge" starts with an underscore, which ValidateSub rightly
+// refuses for anything a player might type.
+func ValidateTXTSub(sub string) error {
+	if sub == "" {
+		return nil
+	}
+	for _, label := range strings.Split(sub, ".") {
+		if strings.HasPrefix(label, "_") {
+			label = label[1:]
+		}
+		if !subPattern.MatchString(strings.ToLower(label)) || label != strings.ToLower(label) {
+			return fmt.Errorf("dns: %q is not a valid record label", label)
 		}
 	}
 	return nil
