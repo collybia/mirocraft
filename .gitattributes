@@ -1,9 +1,24 @@
-* text=auto eol=lf
+# Shell scripts must have LF endings wherever they were edited.
+#
+# Not a style preference: a script with CRLF fails on Linux with
+# "$'\r': command not found" on the shebang line, which says nothing about
+# the real cause. The installer is edited on Windows often enough that this
+# has already happened once.
+*.sh text eol=lf
+Makefile text eol=lf
 
+# Go and web sources are normalised too, so a diff is about the change.
+*.go text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.mjs text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.sql text eol=lf
+
+# Binary, never touched.
 *.png binary
-*.jpg binary
-*.ico binary
 *.jar binary
-*.zip binary
-*.ps1 text eol=crlf
-*.bat text eol=crlf
+*.webp binary

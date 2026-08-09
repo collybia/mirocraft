@@ -32,3 +32,4 @@ mirocraft.yaml
 .vscode/
 .DS_Store
 Thumbs.db
+.installer-test/
