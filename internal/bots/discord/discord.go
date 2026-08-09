@@ -230,34 +230,58 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 	}
 }
 
+// options is one command's arguments, by name.
+type options map[string]*discordgo.ApplicationCommandInteractionDataOption
+
+// handler answers one command.
+type handler func(ctx context.Context, userID string, opts options) botcore.Reply
+
+// handlers maps a command name to what answers it.
+//
+// A table rather than a switch so that the registration and the dispatch can
+// be compared: a command offered in Discord's menu and missing here answers
+// "no such command", which reads as a broken bot. The test walks definitions()
+// against these keys, and that comparison is only worth anything because both
+// sides are the real lists.
+func (b *Bot) handlers() map[string]handler {
+	return map[string]handler{
+		"servers": func(ctx context.Context, userID string, _ options) botcore.Reply {
+			return b.commands.Servers(ctx, userID)
+		},
+		"status": func(ctx context.Context, userID string, opts options) botcore.Reply {
+			return b.commands.Status(ctx, userID, opts.str("server"))
+		},
+		"start": func(ctx context.Context, userID string, opts options) botcore.Reply {
+			return b.commands.Power(ctx, userID, opts.str("server"), panelclient.ActionStart)
+		},
+		"stop": func(ctx context.Context, userID string, opts options) botcore.Reply {
+			return b.commands.Power(ctx, userID, opts.str("server"), panelclient.ActionStop)
+		},
+		"restart": func(ctx context.Context, userID string, opts options) botcore.Reply {
+			return b.commands.Power(ctx, userID, opts.str("server"), panelclient.ActionRestart)
+		},
+		"cmd": func(ctx context.Context, userID string, opts options) botcore.Reply {
+			return b.commands.Command(ctx, userID, opts.str("server"), opts.str("command"))
+		},
+		"console": func(ctx context.Context, userID string, opts options) botcore.Reply {
+			return b.commands.Console(ctx, userID, opts.str("server"), opts.num("lines"))
+		},
+		"link": func(ctx context.Context, userID string, opts options) botcore.Reply {
+			return b.commands.Link(ctx, userID, opts.str("code"))
+		},
+		"unlink": func(ctx context.Context, userID string, _ options) botcore.Reply {
+			return b.commands.Unlink(ctx, userID)
+		},
+	}
+}
+
 // dispatch turns one command into an answer.
 func (b *Bot) dispatch(ctx context.Context, userID string, data discordgo.ApplicationCommandInteractionData) botcore.Reply {
-	options := optionMap(data.Options)
-
-	switch data.Name {
-	case "servers":
-		return b.commands.Servers(ctx, userID)
-	case "status":
-		return b.commands.Status(ctx, userID, stringOption(options, "server"))
-	case "start":
-		return b.commands.Power(ctx, userID, stringOption(options, "server"), panelclient.ActionStart)
-	case "stop":
-		return b.commands.Power(ctx, userID, stringOption(options, "server"), panelclient.ActionStop)
-	case "restart":
-		return b.commands.Power(ctx, userID, stringOption(options, "server"), panelclient.ActionRestart)
-	case "cmd":
-		return b.commands.Command(ctx, userID,
-			stringOption(options, "server"), stringOption(options, "command"))
-	case "console":
-		return b.commands.Console(ctx, userID,
-			stringOption(options, "server"), intOption(options, "lines"))
-	case "link":
-		return b.commands.Link(ctx, userID, stringOption(options, "code"))
-	case "unlink":
-		return b.commands.Unlink(ctx, userID)
-	default:
+	answer, ok := b.handlers()[data.Name]
+	if !ok {
 		return botcore.Reply{Text: "Такой команды нет.", Ephemeral: true}
 	}
+	return answer(ctx, userID, optionMap(data.Options))
 }
 
 // interactionUser finds who invoked a command, which lives in different places
@@ -269,23 +293,25 @@ func interactionUser(i *discordgo.InteractionCreate) *discordgo.User {
 	return i.User
 }
 
-func optionMap(options []*discordgo.ApplicationCommandInteractionDataOption) map[string]*discordgo.ApplicationCommandInteractionDataOption {
-	out := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
-	for _, option := range options {
+func optionMap(given []*discordgo.ApplicationCommandInteractionDataOption) options {
+	out := make(options, len(given))
+	for _, option := range given {
 		out[option.Name] = option
 	}
 	return out
 }
 
-func stringOption(options map[string]*discordgo.ApplicationCommandInteractionDataOption, name string) string {
-	if option, ok := options[name]; ok {
+// str returns a string argument, empty when it was not given.
+func (o options) str(name string) string {
+	if option, ok := o[name]; ok {
 		return option.StringValue()
 	}
 	return ""
 }
 
-func intOption(options map[string]*discordgo.ApplicationCommandInteractionDataOption, name string) int {
-	if option, ok := options[name]; ok {
+// num returns a numeric argument, zero when it was not given.
+func (o options) num(name string) int {
+	if option, ok := o[name]; ok {
 		return int(option.IntValue())
 	}
 	return 0

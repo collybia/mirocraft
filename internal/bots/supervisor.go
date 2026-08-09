@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/collybia/mirocraft/internal/bots/discord"
+	"github.com/collybia/mirocraft/internal/bots/telegram"
 	"github.com/collybia/mirocraft/internal/panelclient"
 	"github.com/collybia/mirocraft/internal/store"
 )
@@ -147,6 +148,8 @@ func (s *Supervisor) build(provider, token string, client *panelclient.Client) (
 	switch provider {
 	case store.ProviderDiscord:
 		return discord.New(token, client, s.panelURL, s.log)
+	case store.ProviderTelegram:
+		return telegram.New(token, client, s.panelURL, s.log)
 	default:
 		return nil, fmt.Errorf("bots: %q is not a platform this build supports", provider)
 	}
