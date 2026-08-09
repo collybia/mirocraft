@@ -46,6 +46,37 @@ type Config struct {
 	Runner   RunnerConfig  `yaml:"runner"`
 	Console  ConsoleConfig `yaml:"console"`
 	Webhooks WebhookConfig `yaml:"webhooks"`
+	DNS      DNSConfig     `yaml:"dns"`
+}
+
+// DNSConfig configures the name the panel and its servers are reachable by.
+//
+// Optional in full: a panel reached by IP address needs none of it, which is
+// the third installer mode.
+type DNSConfig struct {
+	// Provider is desec, duckdns or cloudflare. Empty disables DNS entirely.
+	Provider string `yaml:"provider"`
+	// Zone is the domain: "myname.dedyn.io", "myname" for DuckDNS, or a
+	// domain already on Cloudflare.
+	Zone string `yaml:"zone"`
+	// Token authenticates with the provider.
+	//
+	// Read from the file rather than the database on purpose: it is an
+	// infrastructure credential the operator owns, not something a panel user
+	// should be able to read back or change.
+	Token string `yaml:"token"`
+	// Sub is the name under the zone the panel's own address is published as.
+	// Empty publishes the zone itself, which is what a free subdomain wants.
+	Sub string `yaml:"sub"`
+	// TTL overrides the default; providers raise it to their own floor.
+	TTL int `yaml:"ttl"`
+	// CheckInterval is how often the public address is re-checked.
+	CheckInterval time.Duration `yaml:"check_interval"`
+}
+
+// Enabled reports whether DNS is configured.
+func (d DNSConfig) Enabled() bool {
+	return strings.TrimSpace(d.Provider) != "" && strings.TrimSpace(d.Token) != ""
 }
 
 // WebhookConfig configures outbound webhook delivery.
@@ -211,6 +242,19 @@ func (c *Config) Validate() error {
 	}
 	if c.Console.TicketTTL <= 0 {
 		problems = append(problems, "console.ticket_ttl must be positive")
+	}
+	// Half-configured DNS is worse than none: the daemon would start, publish
+	// nothing and leave the operator wondering why the name does not resolve.
+	if strings.TrimSpace(c.DNS.Provider) != "" {
+		if strings.TrimSpace(c.DNS.Zone) == "" {
+			problems = append(problems, "dns.zone is required when dns.provider is set")
+		}
+		if strings.TrimSpace(c.DNS.Token) == "" {
+			problems = append(problems, "dns.token is required when dns.provider is set")
+		}
+	}
+	if strings.TrimSpace(c.DNS.Provider) == "" && strings.TrimSpace(c.DNS.Token) != "" {
+		problems = append(problems, "dns.token is set but dns.provider is not")
 	}
 
 	if len(problems) > 0 {

@@ -86,6 +86,7 @@ type createServerRequest struct {
 type patchServerRequest struct {
 	Name        *string `json:"name"`
 	RAMMb       *int    `json:"ram_mb"`
+	Port        *int    `json:"port"`
 	JavaArgs    *string `json:"java_args"`
 	AutoStart   *bool   `json:"auto_start"`
 	AutoRestart *bool   `json:"auto_restart"`
@@ -279,6 +280,10 @@ func (a *API) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		a.log.Warn("writing eula.txt failed", slog.String("error", err.Error()))
 	}
 
+	// Best effort, and deliberately after the record exists: a DNS provider
+	// being down must not stop a server being created.
+	a.publishServerDNS(context.WithoutCancel(r.Context()), server)
+
 	a.audit(r, principal.UserID, "server.create", server.ID, server.Name)
 	writeJSON(w, http.StatusCreated, toServerResponse(server))
 }
@@ -383,6 +388,11 @@ func (a *API) handlePatchServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Remembered before the patch: a renamed or moved server needs its old
+	// records taken down, and after the fields change there is nothing left to
+	// derive the old name from.
+	previousName, previousPort := server.Name, server.Port
+
 	if req.Name != nil {
 		name, err := normalizeServerName(*req.Name)
 		if err != nil {
@@ -408,6 +418,27 @@ func (a *API) handlePatchServer(w http.ResponseWriter, r *http.Request) {
 		}
 		server.RAMMb = *req.RAMMb
 	}
+	if req.Port != nil && *req.Port != server.Port {
+		if *req.Port < 1024 || *req.Port > 65535 {
+			writeFieldError(w, "port", "port must be between 1024 and 65535")
+			return
+		}
+		// The same uniqueness check creation makes: two servers on one port
+		// means the second to start fails to bind, and the panel would have
+		// let the operator arrange that.
+		taken, err := a.store.Servers.PortTaken(r.Context(), *req.Port, server.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, CodeInternalError, "could not check the port")
+			return
+		}
+		if taken {
+			writeErrorDetails(w, http.StatusConflict, "port_in_use",
+				"port is already assigned to another server",
+				map[string]any{"field": "port", "reason": "already_in_use"})
+			return
+		}
+		server.Port = *req.Port
+	}
 	if req.JavaArgs != nil {
 		server.JavaArgs = *req.JavaArgs
 	}
@@ -421,6 +452,19 @@ func (a *API) handlePatchServer(w http.ResponseWriter, r *http.Request) {
 	if err := a.store.Servers.Update(r.Context(), server); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternalError, "could not update the server")
 		return
+	}
+
+	// A rename moves the record to a new name, so the old one is taken down
+	// first — otherwise it keeps pointing players at a port that may now
+	// belong to a different server.
+	if server.Name != previousName || server.Port != previousPort {
+		dnsCtx := context.WithoutCancel(r.Context())
+		if server.Name != previousName {
+			a.unpublishServerDNS(dnsCtx, &store.Server{
+				ID: server.ID, Name: previousName, Port: previousPort,
+			})
+		}
+		a.publishServerDNS(dnsCtx, server)
 	}
 
 	a.audit(r, principal.UserID, "server.update", server.ID, "")
@@ -459,6 +503,11 @@ func (a *API) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 				slog.String("server_id", serverID), slog.String("error", err.Error()))
 		}
 	}
+
+	// Before the record goes: the name is derived from it, and a leftover SRV
+	// points players at a port where nothing is listening — more confusing
+	// than no record at all.
+	a.unpublishServerDNS(context.WithoutCancel(r.Context()), server)
 
 	if err := a.store.Servers.Delete(r.Context(), serverID); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternalError, "could not delete the server")

@@ -23,6 +23,7 @@ import (
 	"github.com/collybia/mirocraft/internal/config"
 	"github.com/collybia/mirocraft/internal/core"
 	"github.com/collybia/mirocraft/internal/daemon"
+	"github.com/collybia/mirocraft/internal/dns"
 	"github.com/collybia/mirocraft/internal/events"
 	"github.com/collybia/mirocraft/internal/java"
 	"github.com/collybia/mirocraft/internal/runner"
@@ -107,6 +108,35 @@ func run() error {
 	catalog.UserAgent = "mirocraft/" + version + " (+https://github.com/collybia/mirocraft)"
 	addons := catalog.New(nil)
 
+	// DNS is optional in full: a panel reached by address needs none of it,
+	// which is the installer's third mode.
+	var (
+		dnsProvider dns.Provider
+		dnsWatcher  *dns.Watcher
+	)
+	if cfg.DNS.Enabled() {
+		dnsProvider, err = dns.NewRegistry().Build(cfg.DNS.Provider, dns.Config{
+			Zone: cfg.DNS.Zone, Token: cfg.DNS.Token, TTL: cfg.DNS.TTL,
+		})
+		if err != nil {
+			// Fatal rather than a warning: an operator who configured a name
+			// and got a panel reachable only by address would have no way to
+			// tell that from the name simply not having propagated yet.
+			return err
+		}
+		dnsWatcher = dns.NewWatcher(dnsProvider, cfg.DNS.Sub, log)
+		dnsWatcher.Interval = cfg.DNS.CheckInterval
+
+		log.Info("dns configured",
+			slog.String("provider", dnsProvider.ID()),
+			slog.String("name", dns.FQDN(cfg.DNS.Sub, dnsProvider.Zone())),
+			slog.Bool("srv", dnsProvider.Capabilities().SRV))
+		if !dnsProvider.Capabilities().SRV {
+			log.Warn("this provider cannot publish SRV records, so players must " +
+				"include the port for any server not on 25565")
+		}
+	}
+
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
 		return fmt.Errorf("creating data dir %s: %w", cfg.DataDir, err)
 	}
@@ -143,6 +173,8 @@ func run() error {
 		Backups:     backups,
 		Cores:       cores,
 		Catalog:     addons,
+		DNS:         dnsPublisher(dnsProvider),
+		DNSWatcher:  dnsWatcher,
 		Logger:      log,
 		DataDir:     cfg.DataDir,
 		TicketTTL:   cfg.Console.TicketTTL,
@@ -169,6 +201,12 @@ func run() error {
 	go restAPI.RunBackupSchedules(ctx, time.Minute)
 	// Action chains tick on the same cadence and for the same reason.
 	go restAPI.RunSchedules(ctx, time.Minute)
+
+	// The address record is republished when the connection's address moves,
+	// which on a home line happens on every reconnect.
+	if dnsWatcher != nil {
+		go dnsWatcher.Run(ctx)
+	}
 
 	// Webhooks read the same bus the panel's event socket does, so a delivery
 	// carries exactly what a watching browser saw.
@@ -207,6 +245,18 @@ func run() error {
 
 	log.Info("stopped")
 	return nil
+}
+
+// dnsPublisher hands the API a publisher, or nothing when DNS is off.
+//
+// A typed nil in an interface is not nil, so a plain assignment would give the
+// API a non-nil DNS field wrapping a nil provider — and every publish would
+// panic on the first server created.
+func dnsPublisher(provider dns.Provider) api.DNSPublisher {
+	if provider == nil {
+		return nil
+	}
+	return provider
 }
 
 // chosenRunner is the runner the daemon will use, plus the Docker one when

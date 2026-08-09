@@ -11,6 +11,7 @@ import (
 
 	"github.com/collybia/mirocraft/internal/backup"
 	"github.com/collybia/mirocraft/internal/core"
+	"github.com/collybia/mirocraft/internal/dns"
 	"github.com/collybia/mirocraft/internal/events"
 	"github.com/collybia/mirocraft/internal/store"
 )
@@ -42,6 +43,13 @@ type Options struct {
 	// Backups archives and restores server directories. Nil disables the
 	// backup endpoints rather than failing them obscurely.
 	Backups *backup.Manager
+
+	// DNS publishes the records that make servers reachable by name. Nil
+	// means the panel is reached by address, which is a supported install.
+	DNS DNSPublisher
+	// DNSWatcher keeps the panel's own address record current, for the status
+	// endpoint to report.
+	DNSWatcher *dns.Watcher
 
 	// Cores is the registry the catalogue asks which loader a server takes.
 	Cores *core.Registry
@@ -86,6 +94,8 @@ type API struct {
 	backups     *backup.Manager
 	cores       *core.Registry
 	catalog     Catalog
+	dns         DNSPublisher
+	dnsWatcher  *dns.Watcher
 	events      *events.Bus
 	ping        Pinger
 	tickets     *TicketStore
@@ -163,6 +173,8 @@ func New(opts Options) *API {
 		backups:      opts.Backups,
 		cores:        opts.Cores,
 		catalog:      opts.Catalog,
+		dns:          opts.DNS,
+		dnsWatcher:   opts.DNSWatcher,
 		events:       bus,
 		tickets:      NewTicketStore(opts.TicketTTL),
 		tasks:        newTaskRegistry(),
@@ -254,6 +266,7 @@ func (a *API) authedRoutes() map[string]http.HandlerFunc {
 		"POST /api/v1/servers/{id}/backups":                 a.handleCreateBackup,
 		"GET /api/v1/servers/{id}/backups/schedule":         a.handleGetSchedule,
 		"PUT /api/v1/servers/{id}/backups/schedule":         a.handlePutSchedule,
+		"GET /api/v1/dns":                                   a.handleDNSStatus,
 		"GET /api/v1/catalog/search":                        a.handleCatalogSearch,
 		"GET /api/v1/catalog/projects/{pid}":                a.handleCatalogProject,
 		"GET /api/v1/servers/{id}/catalog":                  a.handleServerContent,

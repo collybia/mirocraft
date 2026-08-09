@@ -68,6 +68,8 @@ tags:
     description: cron-цепочки действий
   - name: catalog
     description: поиск и установка плагинов и модов
+  - name: dns
+    description: имя, по которому доступны панель и серверы
   - name: events
     description: шина событий и вебхуки
   - name: tasks
@@ -1354,6 +1356,26 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  # --- dns ---
+
+  /dns:
+    get:
+      tags: [dns]
+      summary: Состояние публикации имени
+      description: |
+        Панель показывает отсюда, какой адрес давать игрокам, и почему имя
+        перестало резолвиться: вотчер, падающий сутки, выглядит ровно как
+        выключенный сервер.
+
+        `enabled: false` — панель доступна по адресу, и это поддерживаемая
+        установка, а не поломка.
+      responses:
+        "200":
+          description: состояние
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DNSStatus" }
+
   # --- catalogue ---
 
   /catalog/search:
@@ -2087,6 +2109,31 @@ components:
         last_success_at: { type: string, format: date-time, nullable: true }
         failure_count: { type: integer }
         created_at: { type: string, format: date-time }
+
+    DNSStatus:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: false — записи не публикуются вовсе
+        provider: { type: string, enum: [desec, duckdns, cloudflare] }
+        zone: { type: string, example: myname.dedyn.io }
+        srv:
+          type: boolean
+          description: |
+            false — сервер на нестандартном порту по одному имени не найдётся,
+            и игрокам придётся вводить порт
+        host:
+          type: object
+          description: имя, под которым публикуется адрес самой панели
+          properties:
+            name: { type: string }
+            address: { type: string }
+            checked_at: { type: string, format: date-time }
+            error:
+              type: string
+              description: |
+                последняя неудача, если имя может быть устаревшим
 
     CatalogProject:
       type: object

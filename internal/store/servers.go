@@ -169,11 +169,20 @@ func (r *ServerRepo) Delete(ctx context.Context, id string) error {
 	return checkAffected(res, "server", id)
 }
 
-// PortInUse reports whether a port is already assigned.
+// PortInUse reports whether a port is already assigned to any server.
 func (r *ServerRepo) PortInUse(ctx context.Context, port int) (bool, error) {
+	return r.PortTaken(ctx, port, "")
+}
+
+// PortTaken reports whether a port is assigned to a server other than
+// exceptID.
+//
+// The exclusion is what makes it usable when editing: without it, a server
+// keeping its own port would be told the port is taken — by itself.
+func (r *ServerRepo) PortTaken(ctx context.Context, port int, exceptID string) (bool, error) {
 	var n int
 	err := r.db.QueryRowContext(ctx,
-		`SELECT count(*) FROM servers WHERE port = ?`, port).Scan(&n)
+		`SELECT count(*) FROM servers WHERE port = ? AND id != ?`, port, exceptID).Scan(&n)
 	if err != nil {
 		return false, fmt.Errorf("checking port %d: %w", port, err)
 	}

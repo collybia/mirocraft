@@ -140,13 +140,34 @@ type Runner interface {
 Интерфейс DNSProvider:
 
 ```go
-type DNSProvider interface {
-    EnsureA(ctx context.Context, host, ip string) error
-    EnsureSRV(ctx context.Context, host string, port int) error  // _minecraft._tcp, только Java
-    SupportsSRV() bool
-    Cleanup(ctx context.Context, host string) error
+type Provider interface {
+    ID() string
+    Name() string
+    Zone() string
+
+    EnsureAddress(ctx context.Context, sub string, ip netip.Addr) error
+    EnsureSRV(ctx context.Context, sub, target string, port int) error
+    Capabilities() Capabilities
+    Cleanup(ctx context.Context, sub string) error
 }
 ```
+
+Отличия от первоначального наброска, каждое по делу:
+
+- `EnsureAddress`, а не `EnsureA`: метод пишет и AAAA, когда адрес v6.
+  Имя, которое иногда лжёт, стоит кому-то полдня.
+- `Capabilities()` вместо `SupportsSRV()`: провайдеры отличаются не только
+  по SRV. У DuckDNS нет ещё и поддоменов, и у каждого свой минимальный TTL —
+  deSEC отвергает запрос с TTL меньше часа целиком, а не округляет.
+- Провайдер привязан к зоне при создании, а не получает её в каждом вызове:
+  Cloudflare нужен id зоны, deSEC — домен, DuckDNS — единственное имя, на
+  которое он зарегистрирован. Протаскивать это через каждый вызов значило бы
+  вынести детали провайдера в вызывающий код.
+
+Внешний адрес спрашивается у трёх независимых источников, решает большинство.
+Один ошибшийся — или перехваченный — источник увёл бы все серверы панели на
+адрес, которым оператор не владеет, и ничего бы при этом не выглядело
+сломанным.
 
 Реализации: deSEC (дефолт — умеет SRV), DuckDNS (без SRV), Cloudflare (свой домен).
 Демон содержит мини-DynDNS: при смене внешнего IP обновляет записи.
