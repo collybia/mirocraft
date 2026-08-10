@@ -53,30 +53,22 @@ $tempRoot = try { (Get-Item $env:TEMP).FullName } catch { $env:TEMP }
 $temp = Join-Path $tempRoot ('mirocraft-install-' + [guid]::NewGuid().ToString('N') + '.ps1')
 
 try {
-    # A local path is accepted as well as a URL, so this path can be tested
-    # without the network and pointed at a private mirror without patching it.
+    # Downloaded as bytes, straight to the file, with no decoding step at all.
+    #
+    # Not because it is tidier: Invoke-WebRequest hands back a *string* it
+    # decoded using whatever charset it inferred, and on the first real Windows
+    # Server it inferred wrong - every Cyrillic character in the installer came
+    # out as mojibake and the temporary file would not parse. Bytes in, bytes
+    # out, and the file keeps the BOM it was published with, which is exactly
+    # what running it needs.
     if ($source -match '^https?://') {
         Write-Host "-> Downloading the installer"
-        $body = (Invoke-WebRequest -Uri $source -UseBasicParsing).Content
-        if ($body -is [byte[]]) { $body = [Text.Encoding]::UTF8.GetString($body) }
+        Invoke-WebRequest -Uri $source -OutFile $temp -UseBasicParsing
     }
     else {
-        # Bytes and an explicit decode, not ReadAllText: that helper strips a
-        # leading BOM for you, and the download below does not. Behaving
-        # differently would mean the test path and the real one are not the
-        # same path, which is how the first fix for this shipped broken.
         Write-Host "-> Reading the installer from $source"
-        $body = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($source))
+        Copy-Item -LiteralPath $source -Destination $temp -Force
     }
-
-    # The downloaded string carries the file's own BOM as a character. Writing
-    # it out under an encoding that also emits one leaves two, and the second
-    # sits in front of `<#` where PowerShell will not tolerate it - which is
-    # the very failure this file exists to avoid.
-    $body = $body.TrimStart([char]0xFEFF)
-
-    # A BOM, on purpose: see above. This is the copy PowerShell will parse.
-    [IO.File]::WriteAllText($temp, $body, (New-Object Text.UTF8Encoding $true))
 
     & $temp @args
     exit $LASTEXITCODE
