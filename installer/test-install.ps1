@@ -27,7 +27,11 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 # $env:TEMP can hold an 8.3 short name, and Remove-Item refuses to take
 # one. Resolved to the long form once, here.
 $TempRoot = try { (Get-Item $env:TEMP).FullName } catch { $env:TEMP }
-$Scratch  = Join-Path $TempRoot 'mirocraft-install-test'
+# С пробелом в имени, намеренно: настоящий путь по умолчанию —
+# C:\Program Files\Mirocraft, и строка запуска службы поэтому содержит
+# кавычки. Каталог без пробелов прятал ошибку, из-за которой установка на
+# настоящем Windows Server останавливалась на создании службы.
+$Scratch  = Join-Path $TempRoot 'mirocraft install test'
 $ServiceName = 'MirocraftInstallTest'
 $Port        = 8098
 

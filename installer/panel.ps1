@@ -448,10 +448,21 @@ function Install-Service {
 
     Write-Step 'Создаю службу Windows'
     $binLine = '"{0}" --config "{1}"' -f $BinPath, $ConfigPath
-    & sc.exe create $ServiceName binPath= $binLine start= auto DisplayName= 'Mirocraft' | Out-Null
-    if ($LASTEXITCODE -ne 0) { Stop-WithError 'Не удалось создать службу' }
 
-    & sc.exe description $ServiceName 'Панель управления Minecraft-серверами' | Out-Null
+    # New-Service, а не sc.exe: путь по умолчанию — C:\Program Files\Mirocraft,
+    # то есть с пробелом, и строка запуска поэтому содержит кавычки. Windows
+    # PowerShell 5.1 экранирует их при передаче в нативный exe так, что sc.exe
+    # видит мусор, печатает справку и возвращает 1639. На настоящем сервере
+    # установка на этом и останавливалась; в тесте — нет, потому что тест
+    # ставил во временный каталог без пробелов в пути.
+    try {
+        New-Service -Name $ServiceName -BinaryPathName $binLine -DisplayName 'Mirocraft' `
+            -StartupType Automatic -Description 'Панель управления Minecraft-серверами' `
+            -ErrorAction Stop | Out-Null
+    }
+    catch {
+        Stop-WithError "Не удалось создать службу: $($_.Exception.Message)"
+    }
     # Перезапуск после падения: панель держит запущенные серверы, и её уход
     # оставляет их без управления.
     & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Null
