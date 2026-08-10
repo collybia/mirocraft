@@ -61,9 +61,19 @@ try {
         if ($body -is [byte[]]) { $body = [Text.Encoding]::UTF8.GetString($body) }
     }
     else {
+        # Bytes and an explicit decode, not ReadAllText: that helper strips a
+        # leading BOM for you, and the download below does not. Behaving
+        # differently would mean the test path and the real one are not the
+        # same path, which is how the first fix for this shipped broken.
         Write-Host "-> Reading the installer from $source"
-        $body = [IO.File]::ReadAllText($source, [Text.Encoding]::UTF8)
+        $body = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($source))
     }
+
+    # The downloaded string carries the file's own BOM as a character. Writing
+    # it out under an encoding that also emits one leaves two, and the second
+    # sits in front of `<#` where PowerShell will not tolerate it - which is
+    # the very failure this file exists to avoid.
+    $body = $body.TrimStart([char]0xFEFF)
 
     # A BOM, on purpose: see above. This is the copy PowerShell will parse.
     [IO.File]::WriteAllText($temp, $body, (New-Object Text.UTF8Encoding $true))
