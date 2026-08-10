@@ -42,13 +42,31 @@ type Config struct {
 	// DataDir holds server directories, backups and the database.
 	DataDir string `yaml:"data_dir"`
 
-	Log      LogConfig     `yaml:"log"`
-	Runner   RunnerConfig  `yaml:"runner"`
-	Console  ConsoleConfig `yaml:"console"`
-	Webhooks WebhookConfig `yaml:"webhooks"`
-	DNS      DNSConfig     `yaml:"dns"`
-	TLS      TLSConfig     `yaml:"tls"`
+	Log      LogConfig      `yaml:"log"`
+	Runner   RunnerConfig   `yaml:"runner"`
+	Console  ConsoleConfig  `yaml:"console"`
+	Webhooks WebhookConfig  `yaml:"webhooks"`
+	DNS      DNSConfig      `yaml:"dns"`
+	TLS      TLSConfig      `yaml:"tls"`
+	Firewall FirewallConfig `yaml:"firewall"`
 }
+
+// FirewallConfig decides whether the panel opens the ports its servers listen
+// on.
+type FirewallConfig struct {
+	// Manage lets the panel add a rule for a server's port when it starts and
+	// remove it when the server is deleted. On by default, because a firewall
+	// is on by default too — on Windows always, on a hardened Linux box often
+	// — and a panel that starts a server nobody can reach has done half a job
+	// with nothing in any log to explain the other half.
+	//
+	// Only ports of servers the operator created, and only rules this panel
+	// made. It never switches a firewall on.
+	Manage *bool `yaml:"manage"`
+}
+
+// Enabled reports whether the panel should manage firewall rules.
+func (f FirewallConfig) Enabled() bool { return f.Manage == nil || *f.Manage }
 
 // TLSConfig configures how the panel is served over HTTPS.
 type TLSConfig struct {

@@ -538,6 +538,11 @@ func (a *API) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	// than no record at all.
 	a.unpublishServerDNS(context.WithoutCancel(r.Context()), server)
 
+	// Same reason: the rule is named after the record, and a hole left open
+	// for a server that no longer exists is a hole nobody will ever think to
+	// look for.
+	a.closeFirewall(context.WithoutCancel(r.Context()), server)
+
 	if err := a.store.Servers.Delete(r.Context(), serverID); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternalError, "could not delete the server")
 		return
@@ -691,6 +696,10 @@ func (a *API) startServer(ctx context.Context, server *store.Server) error {
 			}
 		}
 	}
+
+	// Before the start, not after: a player who tries the moment the panel
+	// says "running" should get in, and adding a rule takes a process launch.
+	a.openFirewall(ctx, server, launch)
 
 	if err := a.lifecycle.Start(ctx, launch); err != nil {
 		a.recordStatus(ctx, server.ID, string(runner.StatusCrashed))

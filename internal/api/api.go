@@ -13,6 +13,7 @@ import (
 	"github.com/collybia/mirocraft/internal/core"
 	"github.com/collybia/mirocraft/internal/dns"
 	"github.com/collybia/mirocraft/internal/events"
+	"github.com/collybia/mirocraft/internal/firewall"
 	"github.com/collybia/mirocraft/internal/store"
 )
 
@@ -54,6 +55,11 @@ type Options struct {
 	// Certs reports the certificate the panel is served with, so the panel can
 	// warn when it is self-signed. Nil means plain HTTP.
 	Certs CertStatus
+
+	// Firewall opens the ports servers listen on. Nil means the panel does
+	// not touch the firewall, which is what an operator gets when they switch
+	// it off — and what a host with no firewall running amounts to anyway.
+	Firewall firewall.Manager
 
 	// Cores is the registry the catalogue asks which loader a server takes.
 	Cores *core.Registry
@@ -113,6 +119,7 @@ type API struct {
 	tasks       *taskRegistry
 	diskUsage   *diskUsage
 	restarts    *autoRestarter
+	firewall    firewall.Manager
 
 	// scheduleRuns guards a chain against overlapping itself; a chain that
 	// waits can outlast the tick that started it.
@@ -195,6 +202,7 @@ func New(opts Options) *API {
 		tasks:        newTaskRegistry(),
 		diskUsage:    newDiskUsage(),
 		restarts:     newAutoRestarter(),
+		firewall:     opts.Firewall,
 		scheduleRuns: newRunningSchedules(),
 		dataDir:      dataDir,
 		portFrom:     portFrom,

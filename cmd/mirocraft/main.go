@@ -39,6 +39,7 @@ import (
 	"github.com/collybia/mirocraft/internal/daemon"
 	"github.com/collybia/mirocraft/internal/dns"
 	"github.com/collybia/mirocraft/internal/events"
+	"github.com/collybia/mirocraft/internal/firewall"
 	"github.com/collybia/mirocraft/internal/java"
 	"github.com/collybia/mirocraft/internal/php"
 	"github.com/collybia/mirocraft/internal/runner"
@@ -176,6 +177,15 @@ func run(parent context.Context) error {
 		return fmt.Errorf("creating data dir %s: %w", cfg.DataDir, err)
 	}
 
+	// The firewall a server's port has to get through. Chosen once, at start,
+	// because asking the host what it runs costs a process launch and the
+	// answer does not change while the daemon lives.
+	var fw firewall.Manager = firewall.Noop{Reason: "switched off in the configuration"}
+	if cfg.Firewall.Enabled() {
+		fw = firewall.New(log)
+	}
+	log.Info("firewall", slog.String("manager", fw.String()))
+
 	dbPath := filepath.Join(cfg.DataDir, "mirocraft.db")
 	db, err := store.Open(context.Background(), dbPath)
 	if err != nil {
@@ -233,6 +243,7 @@ func run(parent context.Context) error {
 		DNS:         dnsPublisher(dnsProvider),
 		DNSWatcher:  dnsWatcher,
 		Certs:       certStatus(certManager),
+		Firewall:    fw,
 		Bots:        botSupervisorOrNil(botSupervisor),
 		Logger:      log,
 		DataDir:     cfg.DataDir,

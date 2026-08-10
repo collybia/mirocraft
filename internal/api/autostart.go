@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/collybia/mirocraft/internal/firewall"
 	"github.com/collybia/mirocraft/internal/runner"
 	"github.com/collybia/mirocraft/internal/store"
 )
@@ -159,3 +160,67 @@ func (a *API) autoRestart(serverID string) {
 
 // crashed reports whether a status is the kind auto-restart exists for.
 func crashed(status runner.Status) bool { return status == runner.StatusCrashed }
+
+// --- the firewall ---
+
+// openFirewall lets a starting server's port through.
+//
+// A panel that starts a server and leaves it unreachable has done half a job:
+// Windows Firewall is on by default, and a Linux box with ufw enabled behaves
+// the same way. The operator sees "running", hands out an address, and nothing
+// connects — with nothing in any log to explain it. That is what a real
+// Windows Server did with a real Paper server listening.
+//
+// Failures are logged, not fatal. A rule that could not be added is a server
+// nobody outside can reach, which is bad; a server that refuses to start
+// because of it is worse.
+func (a *API) openFirewall(ctx context.Context, server *store.Server, launch *runner.Server) {
+	if a.firewall == nil {
+		return
+	}
+
+	rules := []firewall.Rule{firewall.NewRule(server.ID, server.Port, launch.UDP)}
+	// Crossplay listens on its own UDP port beside the Java one, and a Bedrock
+	// client that cannot reach it simply never sees the server.
+	if launch.BedrockPort > 0 && launch.BedrockPort != server.Port {
+		rules = append(rules, firewall.NewRule(server.ID, launch.BedrockPort, true))
+	}
+
+	for _, rule := range rules {
+		if err := a.firewall.Open(ctx, rule); err != nil {
+			a.log.Warn("could not open the firewall for this server; "+
+				"it will run but players outside this machine will not reach it",
+				slog.String("server_id", server.ID), slog.Int("port", rule.Port),
+				slog.String("error", err.Error()))
+		}
+	}
+}
+
+// closeFirewall removes the rules for a server that is going away.
+//
+// On delete rather than on stop: a stopped server is one somebody intends to
+// start again, and taking its port away in the meantime would mean the rule
+// has to be re-added on every start of every server, which is a process launch
+// for nothing. A deleted server is gone, and its hole in the firewall should
+// go with it.
+func (a *API) closeFirewall(ctx context.Context, server *store.Server) {
+	if a.firewall == nil {
+		return
+	}
+
+	names := []string{
+		firewall.NewRule(server.ID, server.Port, false).Name,
+		firewall.NewRule(server.ID, server.Port, true).Name,
+	}
+	if server.BedrockPort > 0 {
+		names = append(names, firewall.NewRule(server.ID, server.BedrockPort, true).Name)
+	}
+
+	for _, name := range names {
+		if err := a.firewall.Close(ctx, name); err != nil {
+			a.log.Debug("removing a firewall rule failed",
+				slog.String("server_id", server.ID), slog.String("rule", name),
+				slog.String("error", err.Error()))
+		}
+	}
+}
