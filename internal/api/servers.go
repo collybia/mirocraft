@@ -617,6 +617,15 @@ func (a *API) handlePower(w http.ResponseWriter, r *http.Request) {
 // runPower performs the requested lifecycle change and keeps the stored status
 // in step with it.
 func (a *API) runPower(ctx context.Context, server *store.Server, action string, timeout time.Duration) error {
+	// A start somebody asked for — an operator, the scheduler, the daemon
+	// coming up — clears the crash budget. Deliberately here and not in
+	// startServer: an auto-restart goes through that too, and clearing the
+	// budget from inside it would let a server crash forever, three at a time.
+	// It did exactly that, on a real machine, four kills in a row.
+	if action == ActionStart || action == ActionRestart {
+		a.restarts.forget(server.ID)
+	}
+
 	switch action {
 	case ActionStart:
 		return a.startServer(ctx, server)

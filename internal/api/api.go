@@ -112,6 +112,7 @@ type API struct {
 	tickets     *TicketStore
 	tasks       *taskRegistry
 	diskUsage   *diskUsage
+	restarts    *autoRestarter
 
 	// scheduleRuns guards a chain against overlapping itself; a chain that
 	// waits can outlast the tick that started it.
@@ -193,6 +194,7 @@ func New(opts Options) *API {
 		tickets:      NewTicketStore(opts.TicketTTL),
 		tasks:        newTaskRegistry(),
 		diskUsage:    newDiskUsage(),
+		restarts:     newAutoRestarter(),
 		scheduleRuns: newRunningSchedules(),
 		dataDir:      dataDir,
 		portFrom:     portFrom,

@@ -244,6 +244,17 @@ func run(parent context.Context) error {
 	// running describes a process this one cannot manage.
 	restAPI.ReconcileServers(context.Background())
 
+	// After reconciling, because a server recorded as running by a daemon that
+	// is gone has to be marked stopped before anything tries to start it.
+	//
+	// In the background: provisioning a cold server downloads a core and a
+	// runtime, and the panel should be answering while that happens rather
+	// than after it.
+	//
+	// On the daemon's own context, so a service stopped mid-provision stops
+	// rather than carrying on downloading for a machine that is shutting down.
+	go restAPI.StartAutoStartServers(parent)
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           rootHandler(restAPI.Handler(), log),

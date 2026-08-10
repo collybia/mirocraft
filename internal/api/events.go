@@ -433,12 +433,15 @@ func (a *API) emitStatus(serverID, ownerID string, status runner.Status) {
 		Data:     map[string]any{"status": string(status)},
 	})
 
-	if status == runner.StatusCrashed {
+	if crashed(status) {
 		a.events.Publish(events.Event{
 			Type:     events.TypeServerCrashed,
 			ServerID: serverID,
 			OwnerID:  ownerID,
 		})
+		// The one place that already knows a server died. Bringing it back is
+		// what the auto_restart switch on its settings page promises.
+		a.autoRestart(serverID)
 	}
 }
 
