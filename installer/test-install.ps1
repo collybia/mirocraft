@@ -47,18 +47,40 @@ function Test-Check {
 }
 
 function Remove-Everything {
+    # Остановить до удаления. `sc delete` только помечает службу, а файлы
+    # остаются заблокированными, пока жив процесс: каталог тогда не удаляется,
+    # следующий прогон видит конфигурацию от прошлого и идёт по ветке
+    # обновления — то есть проверяет не то, что собирался, и молча.
+    Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue
     & sc.exe delete $ServiceName 2>&1 | Out-Null
+    Get-Process mirocraft -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    for ($i = 0; $i -lt 40; $i++) {
+        if (-not (Get-Process mirocraft -ErrorAction SilentlyContinue)) { break }
+        Start-Sleep -Milliseconds 250
+    }
+
     Get-NetFirewallRule -DisplayName "$ServiceName panel" -ErrorAction SilentlyContinue |
         Remove-NetFirewallRule -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $Scratch -ErrorAction SilentlyContinue
+
+    if (Test-Path $Scratch) {
+        Write-Host "!   не удалось убрать $Scratch — следующий прогон может проверить не то"
+    }
 }
 
 function Invoke-Installer {
-    param([string[]]$ExtraArgs = @(), [switch]$WithoutBinary)
+    param([string[]]$ExtraArgs = @(), [switch]$WithoutBinary, [switch]$ThroughBootstrap)
+
+    # Through the bootstrap by default is not the point: most checks are about
+    # what the installer does, and going through the downloader on each of them
+    # would test the same fifteen lines twenty times. One check does it the way
+    # a person does, and that one matters — the pair of them is the whole
+    # reason these are two files.
+    $entry = if ($ThroughBootstrap) { 'install.ps1' } else { 'panel.ps1' }
 
     $arguments = @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass',
-        '-File', (Join-Path $PSScriptRoot 'install.ps1'),
+        '-File', (Join-Path $PSScriptRoot $entry),
         '-AssumeYes'
     )
     if (-not $WithoutBinary) {
@@ -156,10 +178,32 @@ function Main {
     }
     Remove-Everything
 
+    # Кодировки. Проверяются первыми, потому что ломаются молча и целиком:
+    # BOM нужен файлу, который PowerShell 5.1 читает с диска, и он же убивает
+    # `irm | iex`, где строка не должна начинаться с U+FEFF.
+    $bootstrapBytes = [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot 'install.ps1'))
+    $panelBytes = [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot 'panel.ps1'))
+    $bom = @(0xEF, 0xBB, 0xBF)
+    Test-Check 'у загрузчика нет BOM (иначе ломается irm|iex)' `
+        (-not ($bootstrapBytes[0] -eq $bom[0] -and $bootstrapBytes[1] -eq $bom[1] -and $bootstrapBytes[2] -eq $bom[2]))
+    Test-Check 'загрузчик — чистый ASCII' `
+        (-not ($bootstrapBytes | Where-Object { $_ -gt 127 }))
+    Test-Check 'у установщика BOM есть (иначе PS 5.1 не читает кириллицу)' `
+        ($panelBytes[0] -eq $bom[0] -and $panelBytes[1] -eq $bom[1] -and $panelBytes[2] -eq $bom[2])
+
     try {
         Write-Host ''
-        $output = Invoke-Installer -ExtraArgs @('-Mode', '3')
-        Test-Check 'установщик отработал' ($output -match 'Служба запущена') $output
+        # Через загрузчик — ровно так, как человек набирает команду из README.
+        # Это и есть проверка того, ради чего установщик разделён на два файла:
+        # BOM нужен, чтобы PowerShell 5.1 прочитал кириллицу из файла, и он же
+        # ломает `irm | iex`, потому что строка не должна начинаться с U+FEFF.
+        # Первая установка на настоящий Windows Server вернула стену ошибок
+        # парсера ровно из-за этого.
+        $env:MIROCRAFT_INSTALLER_URL = Join-Path $PSScriptRoot 'panel.ps1'
+        $output = Invoke-Installer -ExtraArgs @('-Mode', '3') -ThroughBootstrap
+        Remove-Item Env:\MIROCRAFT_INSTALLER_URL -ErrorAction SilentlyContinue
+        Test-Check 'установщик отработал через загрузчик' ($output -match 'Служба запущена') $output
+        Test-Check 'кириллица не побилась по дороге' ($output -match 'самоподписанный') $output
 
         $service = Get-Service $ServiceName -ErrorAction SilentlyContinue
         Test-Check 'служба создана и запущена' ($null -ne $service -and $service.Status -eq 'Running')
