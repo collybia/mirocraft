@@ -55,6 +55,22 @@ jobs:
           - goos: windows
             goarch: amd64
             asset: mirocraft-windows-amd64.exe
+          # The relay runs on a different machine from the panel and does a
+          # different job, so it ships as its own binary. Released alongside
+          # rather than separately: a panel and a relay that disagree about the
+          # protocol are two versions nobody can pair.
+          - goos: linux
+            goarch: amd64
+            asset: mirocraft-relay-linux-amd64
+            cmd: ./cmd/mirocraft-relay
+          - goos: linux
+            goarch: arm64
+            asset: mirocraft-relay-linux-arm64
+            cmd: ./cmd/mirocraft-relay
+          - goos: windows
+            goarch: amd64
+            asset: mirocraft-relay-windows-amd64.exe
+            cmd: ./cmd/mirocraft-relay
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -85,7 +101,7 @@ jobs:
         run: |
           go build -trimpath \
             -ldflags "-s -w -X main.version=${VERSION}" \
-            -o "${{ matrix.asset }}" ./cmd/mirocraft
+            -o "${{ matrix.asset }}" "${{ matrix.cmd || './cmd/mirocraft' }}"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -142,6 +158,35 @@ jobs:
           # produce a working daemon nobody can use.
           curl -fsS http://127.0.0.1:8099/ | grep -q 'id="root"'
           echo "panel ok"
+
+      # The relay ships in the same release, so it is checked in the same
+      # place. Only that it runs and reports its version: what it does needs a
+      # second machine, and that is what internal/relay's tests are for.
+      - uses: actions/download-artifact@v4
+        with:
+          name: mirocraft-relay-linux-amd64
+
+      - name: Run the relay
+        env:
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0-dev+{0}', github.sha) }}
+        run: |
+          set -euo pipefail
+          chmod +x mirocraft-relay-linux-amd64
+
+          reported="$(./mirocraft-relay-linux-amd64 --version)"
+          echo "reported: ${reported}"
+          case "${reported}" in
+            *"${VERSION}"*) ;;
+            *) echo "expected the version to contain ${VERSION}"; exit 1 ;;
+          esac
+
+          # A relay with no tunnels refuses to start rather than listening for
+          # nobody, and says where to look.
+          if ./mirocraft-relay-linux-amd64 --config /nonexistent.yaml 2>&1 | grep -q "mirocraft-relay:"; then
+            echo "relay reports a missing configuration"
+          else
+            echo "the relay said nothing useful about a missing configuration"; exit 1
+          fi
 
   publish:
     name: Publish

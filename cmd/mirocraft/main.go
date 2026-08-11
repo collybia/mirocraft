@@ -247,6 +247,7 @@ func run(parent context.Context) error {
 		// Asking a router to forward a port is offered, never done unasked:
 		// it changes a device the whole household shares.
 		PortForwarding: cfg.Firewall.Forwarding(),
+		Relay:          cfg.Relay,
 		Bots:           botSupervisorOrNil(botSupervisor),
 		Logger:         log,
 		DataDir:        cfg.DataDir,
@@ -257,6 +258,11 @@ func run(parent context.Context) error {
 	// A previous daemon's children outlive it, so any row still claiming to be
 	// running describes a process this one cannot manage.
 	restAPI.ReconcileServers(context.Background())
+
+	// The tunnel comes back with the daemon. Without this it would be up until
+	// the first upgrade and then quietly not, which is the worst of both: the
+	// address a friend saved keeps looking right and stops working.
+	restAPI.RestoreRelay(context.Background())
 
 	// After reconciling, because a server recorded as running by a daemon that
 	// is gone has to be marked stopped before anything tries to start it.

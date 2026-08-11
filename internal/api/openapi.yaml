@@ -1870,6 +1870,39 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /servers/{id}/connect/relay:
+    post:
+      tags: [servers]
+      summary: Пустить сервер через релей
+      description: |
+        Для случая, который не лечится настройкой роутера: провайдер выдал
+        общий адрес. Релей — маленький форвардер на машине с белым адресом
+        (`cmd/mirocraft-relay` в этом же репозитории). Панель подключается к
+        нему сама, изнутри, поэтому на домашней стороне ничего открывать не
+        нужно, а друзьям достаётся обычный адрес и порт.
+
+        Туннель один: он занимает один публичный порт, и два сервера за ним
+        означали бы игроков одного, приходящих ко второму. Включение для
+        другого сервера забирает туннель у прежнего.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: включено; в ответе — обновлённое состояние
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectInfo" }
+        "409":
+          description: релей не настроен в конфигурации панели
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [servers]
+      summary: Убрать сервер из релея
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "204": { description: убрано (или убирать было нечего) }
+
   /servers/{id}/modpack:
     get:
       tags: [catalog]
@@ -2805,6 +2838,15 @@ components:
             external_ip: { type: string }
             address: { type: string, description: что раздавать друзьям, если есть что }
             taken_by: { type: string, description: машина, уже держащая этот порт }
+        relay:
+          type: object
+          description: туннель через машину с белым адресом
+          properties:
+            configured: { type: boolean, description: релей вообще прописан в конфигурации }
+            enabled: { type: boolean, description: туннель держит именно этот сервер }
+            address: { type: string, description: что раздавать друзьям }
+            held_by: { type: string, description: id сервера, занявшего туннель }
+            error: { type: string, description: почему туннель не поднялся }
 
     ModpackPlan:
       type: object

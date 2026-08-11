@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/collybia/mirocraft/internal/backup"
+	"github.com/collybia/mirocraft/internal/config"
 	"github.com/collybia/mirocraft/internal/core"
 	"github.com/collybia/mirocraft/internal/dns"
 	"github.com/collybia/mirocraft/internal/events"
@@ -61,6 +62,10 @@ type Options struct {
 	// not touch the firewall, which is what an operator gets when they switch
 	// it off — and what a host with no firewall running amounts to anyway.
 	Firewall firewall.Manager
+
+	// Relay points the panel at a forwarder on a machine with a public
+	// address, for the case where no router setting can help.
+	Relay config.RelayConfig
 
 	// PortForwarding lets the panel ask a home router to forward a server's
 	// port, on request. Off leaves the endpoints answering "not available"
@@ -126,6 +131,7 @@ type API struct {
 	diskUsage   *diskUsage
 	restarts    *autoRestarter
 	firewall    firewall.Manager
+	relay       *relayManager
 	routers     *routerCache
 	// addresses lists this machine's own addresses. Replaced in tests, where
 	// the answer must not depend on the network the suite runs on.
@@ -220,6 +226,7 @@ func New(opts Options) *API {
 		diskUsage:    newDiskUsage(),
 		restarts:     newAutoRestarter(),
 		firewall:     opts.Firewall,
+		relay:        newRelayManager(opts.Relay, opts.DataDir, opts.Logger),
 		routers:      routers,
 		scheduleRuns: newRunningSchedules(),
 		dataDir:      dataDir,
@@ -324,6 +331,8 @@ func (a *API) authedRoutes() map[string]http.HandlerFunc {
 		"GET /api/v1/servers/{id}/connect":                  a.handleConnect,
 		"POST /api/v1/servers/{id}/connect/forward":         a.handleForward,
 		"DELETE /api/v1/servers/{id}/connect/forward":       a.handleUnforward,
+		"POST /api/v1/servers/{id}/connect/relay":           a.handleRelayEnable,
+		"DELETE /api/v1/servers/{id}/connect/relay":         a.handleRelayDisable,
 		"GET /api/v1/servers/{id}/modpack":                  a.handleGetModpack,
 		"POST /api/v1/servers/{id}/modpack":                 a.handleInstallModpack,
 		"GET /api/v1/servers/{id}/installed":                a.handleListInstalled,

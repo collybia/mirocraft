@@ -109,6 +109,9 @@ type connectResponse struct {
 	// Addresses are every way to reach this machine, most useful first.
 	Addresses []connectAddress `json:"addresses"`
 	Internet  internetInfo     `json:"internet"`
+	// Relay is the tunnel through a machine that has a public address, for
+	// when this one cannot get an address of its own.
+	Relay relayInfo `json:"relay"`
 }
 
 // --- handlers ---
@@ -136,7 +139,11 @@ func (a *API) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 // connectInfo gathers the addresses and asks the router where it stands.
 func (a *API) connectInfo(ctx context.Context, server *store.Server) connectResponse {
-	resp := connectResponse{Port: server.Port, Addresses: []connectAddress{}}
+	resp := connectResponse{
+		Port:      server.Port,
+		Addresses: []connectAddress{},
+		Relay:     a.relay.Info(ctx, server.ID),
+	}
 
 	// Through a field rather than the package directly, so a test can say what
 	// kind of machine this is instead of depending on the one it runs on.

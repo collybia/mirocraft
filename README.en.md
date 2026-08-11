@@ -78,6 +78,15 @@ install path are the same code — otherwise the upgrade path becomes the one no
 - **Crossplay** — one switch installs Geyser and Floodgate, and Bedrock players join a
   Java server without a Java account.
 
+**So friends can join**
+
+- The panel says which of the machine's addresses to hand out, labelled by adapter name —
+  Hamachi, Radmin, the local network, a service range.
+- A button that asks the router to forward the port over UPnP.
+- When the provider hands out a shared address and no router setting can help, the panel
+  says so plainly — and offers a relay: a small forwarder on any machine that does have a
+  public address, which gives friends an ordinary host and port. They install nothing.
+
 **Around the server**
 
 - WebSocket console, a file manager with an editor, and `server.properties` explained in

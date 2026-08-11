@@ -49,6 +49,40 @@ type Config struct {
 	DNS      DNSConfig      `yaml:"dns"`
 	TLS      TLSConfig      `yaml:"tls"`
 	Firewall FirewallConfig `yaml:"firewall"`
+	Relay    RelayConfig    `yaml:"relay"`
+}
+
+// RelayConfig points the panel at a relay that gives it a public address.
+//
+// For the case no router setting can fix: an internet provider that hands out
+// an address shared with other subscribers. A relay is a small forwarder on a
+// machine that does have a public address; the panel dials out to it, so
+// nothing needs opening at this end, and friends are given an ordinary address
+// and port. The relay is in this repository (cmd/mirocraft-relay) and is meant
+// to be run by whoever needs one.
+type RelayConfig struct {
+	// Addr is the relay's control address, host:port. Empty means no relay.
+	Addr string `yaml:"addr"`
+	// Token authenticates this tunnel. Printed once by the relay when the
+	// tunnel is created; the relay keeps only its hash.
+	Token string `yaml:"token"`
+	// Host is the name to give people, when it differs from the address the
+	// panel dials — a relay behind a domain, or one whose control port is not
+	// where players connect. Empty means "the host part of Addr".
+	Host string `yaml:"host"`
+	// Fingerprint pins the relay's TLS certificate by SHA-256, hex encoded.
+	// For a relay with a self-signed certificate: exact verification without
+	// needing a certificate authority.
+	Fingerprint string `yaml:"fingerprint"`
+	// Insecure drops TLS entirely. Named for what it costs: the token then
+	// crosses the network in the clear, and anything on the path can take
+	// over the tunnel.
+	Insecure bool `yaml:"insecure"`
+}
+
+// Enabled reports whether a relay is configured.
+func (r RelayConfig) Enabled() bool {
+	return strings.TrimSpace(r.Addr) != "" && strings.TrimSpace(r.Token) != ""
 }
 
 // FirewallConfig decides whether the panel opens the ports its servers listen

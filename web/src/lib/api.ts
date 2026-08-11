@@ -808,6 +808,17 @@ export interface ConnectAddress {
   interface: string;
 }
 
+export interface RelayInfo {
+  /** Релей вообще прописан в конфигурации панели. */
+  configured: boolean;
+  /** Туннель держит именно этот сервер. */
+  enabled: boolean;
+  address?: string;
+  /** id сервера, который занял туннель, если это не текущий. */
+  held_by?: string;
+  error?: string;
+}
+
 export interface ConnectInfo {
   port: number;
   addresses: ConnectAddress[];
@@ -817,10 +828,21 @@ export interface ConnectInfo {
     address?: string;
     taken_by?: string;
   };
+  relay: RelayInfo;
 }
 
 export function serverConnect(id: string): Promise<ConnectInfo> {
   return request<ConnectInfo>(`/servers/${id}/connect`);
+}
+
+export function enableRelay(id: string): Promise<ConnectInfo> {
+  return request<ConnectInfo>(`/servers/${id}/connect/relay`, {
+    method: "POST",
+  });
+}
+
+export function disableRelay(id: string): Promise<void> {
+  return request<void>(`/servers/${id}/connect/relay`, { method: "DELETE" });
 }
 
 export function forwardPort(id: string): Promise<ConnectInfo> {
