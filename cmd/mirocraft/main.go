@@ -244,11 +244,14 @@ func run(parent context.Context) error {
 		DNSWatcher:  dnsWatcher,
 		Certs:       certStatus(certManager),
 		Firewall:    fw,
-		Bots:        botSupervisorOrNil(botSupervisor),
-		Logger:      log,
-		DataDir:     cfg.DataDir,
-		TicketTTL:   cfg.Console.TicketTTL,
-		StopTimeout: cfg.Runner.StopTimeout,
+		// Asking a router to forward a port is offered, never done unasked:
+		// it changes a device the whole household shares.
+		PortForwarding: cfg.Firewall.Forwarding(),
+		Bots:           botSupervisorOrNil(botSupervisor),
+		Logger:         log,
+		DataDir:        cfg.DataDir,
+		TicketTTL:      cfg.Console.TicketTTL,
+		StopTimeout:    cfg.Runner.StopTimeout,
 	})
 
 	// A previous daemon's children outlive it, so any row still claiming to be

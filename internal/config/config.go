@@ -63,10 +63,24 @@ type FirewallConfig struct {
 	// Only ports of servers the operator created, and only rules this panel
 	// made. It never switches a firewall on.
 	Manage *bool `yaml:"manage"`
+
+	// Forward lets the panel offer to ask the router to forward a server's
+	// port — the button on the server's page. On by default; the button is
+	// still a button, and nothing happens without somebody pressing it.
+	Forward *bool `yaml:"forward"`
 }
 
 // Enabled reports whether the panel should manage firewall rules.
 func (f FirewallConfig) Enabled() bool { return f.Manage == nil || *f.Manage }
+
+// Forwarding reports whether the panel may offer to forward a port on the
+// router.
+//
+// Offer, not do: the button is in the panel and a person presses it. This only
+// decides whether the panel goes looking for a router at all — on a rented
+// server there is none, and searching the network on every page view would be
+// three seconds spent to learn that again.
+func (f FirewallConfig) Forwarding() bool { return f.Forward == nil || *f.Forward }
 
 // TLSConfig configures how the panel is served over HTTPS.
 type TLSConfig struct {

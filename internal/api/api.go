@@ -14,6 +14,7 @@ import (
 	"github.com/collybia/mirocraft/internal/dns"
 	"github.com/collybia/mirocraft/internal/events"
 	"github.com/collybia/mirocraft/internal/firewall"
+	"github.com/collybia/mirocraft/internal/netinfo"
 	"github.com/collybia/mirocraft/internal/store"
 )
 
@@ -60,6 +61,11 @@ type Options struct {
 	// not touch the firewall, which is what an operator gets when they switch
 	// it off — and what a host with no firewall running amounts to anyway.
 	Firewall firewall.Manager
+
+	// PortForwarding lets the panel ask a home router to forward a server's
+	// port, on request. Off leaves the endpoints answering "not available"
+	// rather than searching the network on every look.
+	PortForwarding bool
 
 	// Cores is the registry the catalogue asks which loader a server takes.
 	Cores *core.Registry
@@ -120,6 +126,10 @@ type API struct {
 	diskUsage   *diskUsage
 	restarts    *autoRestarter
 	firewall    firewall.Manager
+	routers     *routerCache
+	// addresses lists this machine's own addresses. Replaced in tests, where
+	// the answer must not depend on the network the suite runs on.
+	addresses func() ([]netinfo.Address, error)
 
 	// scheduleRuns guards a chain against overlapping itself; a chain that
 	// waits can outlast the tick that started it.
@@ -184,6 +194,13 @@ func New(opts Options) *API {
 		stopTimeout = DefaultStopTimeout
 	}
 
+	// Nil when the operator switched port forwarding off: the endpoints then
+	// answer honestly rather than pretending to try.
+	var routers *routerCache
+	if opts.PortForwarding {
+		routers = newRouterCache()
+	}
+
 	a := &API{
 		store:        opts.Store,
 		console:      opts.Console,
@@ -203,6 +220,7 @@ func New(opts Options) *API {
 		diskUsage:    newDiskUsage(),
 		restarts:     newAutoRestarter(),
 		firewall:     opts.Firewall,
+		routers:      routers,
 		scheduleRuns: newRunningSchedules(),
 		dataDir:      dataDir,
 		portFrom:     portFrom,
@@ -303,6 +321,9 @@ func (a *API) authedRoutes() map[string]http.HandlerFunc {
 		"GET /api/v1/catalog/projects/{pid}":                a.handleCatalogProject,
 		"GET /api/v1/servers/{id}/catalog":                  a.handleServerContent,
 		"POST /api/v1/servers/{id}/catalog/install":         a.handleCatalogInstall,
+		"GET /api/v1/servers/{id}/connect":                  a.handleConnect,
+		"POST /api/v1/servers/{id}/connect/forward":         a.handleForward,
+		"DELETE /api/v1/servers/{id}/connect/forward":       a.handleUnforward,
 		"GET /api/v1/servers/{id}/modpack":                  a.handleGetModpack,
 		"POST /api/v1/servers/{id}/modpack":                 a.handleInstallModpack,
 		"GET /api/v1/servers/{id}/installed":                a.handleListInstalled,

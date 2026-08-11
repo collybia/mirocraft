@@ -4,16 +4,26 @@ import { useNavigate, useParams } from "react-router-dom";
 import * as api from "../lib/api";
 import { ServerBackups } from "./ServerBackups";
 import { ServerCatalog } from "./ServerCatalog";
+import { ServerConnect } from "./ServerConnect";
 import { ServerFiles } from "./ServerFiles";
 import { ServerModpacks } from "./ServerModpacks";
 import { ServerOptions } from "./ServerOptions";
 import { ServerSettings } from "./ServerSettings";
 import { StatusBadge } from "./Servers";
 
-type Tab = "console" | "files" | "settings" | "catalog" | "modpacks" | "backups" | "options";
+type Tab =
+  | "console"
+  | "connect"
+  | "files"
+  | "settings"
+  | "catalog"
+  | "modpacks"
+  | "backups"
+  | "options";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "console", label: "Консоль" },
+  { id: "connect", label: "Подключение" },
   { id: "files", label: "Файлы" },
   { id: "settings", label: "server.properties" },
   { id: "catalog", label: "Дополнения" },
@@ -273,6 +283,7 @@ export function ServerDetail() {
         ))}
       </nav>
 
+      {tab === "connect" && <ServerConnect serverId={id} />}
       {tab === "files" && <ServerFiles serverId={id} />}
       {tab === "settings" && <ServerSettings serverId={id} />}
       {tab === "catalog" && <ServerCatalog serverId={id} />}

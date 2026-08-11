@@ -1777,6 +1777,93 @@ paths:
         "400": { $ref: "#/components/responses/ValidationFailed" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /servers/{id}/connect:
+    get:
+      tags: [servers]
+      summary: Как к серверу подключиться
+      description: |
+        Вопрос, который на самом деле задают панели, стоящей на домашней
+        машине: **какой адрес давать друзьям**. У такой машины их четыре, и
+        ничто не подсказывает, какой рабочий: `127.0.0.1` годится только тому,
+        кто сидит за ней, `192.168.1.5` — квартире, `25.34.12.9` — тем, кто
+        вошёл в ту же сеть Hamachi. Люди раздают localhost и не понимают,
+        почему никто не заходит.
+
+        Адреса подписаны по имени сетевого адаптера, а не по диапазону:
+        Hamachi раздаёт `25.x`, Radmin — `26.x`, и обе эти сети принадлежат
+        в интернете реальным владельцам. Назвать публичный адрес «Hamachi»
+        потому, что он начинается на 25, — уверенная ложь.
+
+        Сортировка — по полезности: сперва то, что видно из интернета, потом
+        оверлейные сети, потом локальная, последним loopback.
+
+        `internet.state` объясняет, почему снаружи не заходят:
+
+        - `direct` — у машины свой публичный адрес, роутер не при чём;
+        - `forwarded` — роутер уже шлёт этот порт сюда;
+        - `can_forward` — роутер умеет и ждёт, чтобы его попросили;
+        - `taken_by_another` — порт уже проброшен на другую машину, и панель
+          его не отбирает: она не знает, что там работает;
+        - `carrier_nat` — у провайдера серый адрес. Никакая настройка роутера
+          не поможет, и это ровно тот случай, когда Hamachi — не костыль,
+          а ответ;
+        - `no_router` — на UPnP-поиск никто не ответил.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: адреса и состояние доступности
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectInfo" }
+
+  /servers/{id}/connect/forward:
+    post:
+      tags: [servers]
+      summary: Попросить роутер пробросить порт
+      description: |
+        Кнопка, а не действие при старте. Правило фаервола меняет ту машину,
+        на которую человек поставил панель; проброс порта меняет роутер, общий
+        на всю квартиру, — это не то решение, которое принимают за него.
+
+        Порт, уже проброшенный на другую машину, не отбирается: `409
+        port_in_use` с адресом того, кто его держит.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "200":
+          description: проброшен; в ответе — обновлённое состояние
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectInfo" }
+        "404":
+          description: роутер не найден или не говорит по UPnP
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: порт занят другой машиной
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: роутер отказал
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [servers]
+      summary: Убрать проброс
+      description: |
+        Убирается только проброс, указывающий на эту машину. Сделанный кем-то
+        другим — чужой.
+      parameters: [{ $ref: "#/components/parameters/PathID" }]
+      responses:
+        "204": { description: убрано (или убирать было нечего) }
+        "409":
+          description: проброс ведёт на другую машину
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /servers/{id}/modpack:
     get:
       tags: [catalog]
@@ -2682,6 +2769,32 @@ components:
             properties:
               project_id: { type: string }
               reason: { type: string }
+
+    ConnectInfo:
+      type: object
+      properties:
+        port: { type: integer }
+        addresses:
+          type: array
+          description: все адреса этой машины, самый полезный первым
+          items:
+            type: object
+            properties:
+              address: { type: string, description: "адрес с портом, как его вводят в игре" }
+              ip: { type: string }
+              kind:
+                type: string
+                enum: [public, hamachi, radmin, zerotier, tailscale, lan, loopback]
+              interface: { type: string, description: имя сетевого адаптера }
+        internet:
+          type: object
+          properties:
+            state:
+              type: string
+              enum: [direct, forwarded, can_forward, taken_by_another, carrier_nat, no_router]
+            external_ip: { type: string }
+            address: { type: string, description: что раздавать друзьям, если есть что }
+            taken_by: { type: string, description: машина, уже держащая этот порт }
 
     ModpackPlan:
       type: object

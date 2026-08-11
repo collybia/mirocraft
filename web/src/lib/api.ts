@@ -686,6 +686,57 @@ export async function listInstalled(id: string): Promise<InstalledAddon[]> {
   return body.items;
 }
 
+/* --- как подключиться --- */
+
+export type AddressKind =
+  | "public"
+  | "hamachi"
+  | "radmin"
+  | "zerotier"
+  | "tailscale"
+  | "lan"
+  | "loopback";
+
+export type InternetState =
+  | "direct"
+  | "forwarded"
+  | "can_forward"
+  | "taken_by_another"
+  | "carrier_nat"
+  | "no_router";
+
+export interface ConnectAddress {
+  /** Адрес с портом — то, что вводят в игре. */
+  address: string;
+  ip: string;
+  kind: AddressKind;
+  /** Имя сетевого адаптера: у кого две оверлейные сети, различит их по нему. */
+  interface: string;
+}
+
+export interface ConnectInfo {
+  port: number;
+  addresses: ConnectAddress[];
+  internet: {
+    state: InternetState;
+    external_ip?: string;
+    address?: string;
+    taken_by?: string;
+  };
+}
+
+export function serverConnect(id: string): Promise<ConnectInfo> {
+  return request<ConnectInfo>(`/servers/${id}/connect`);
+}
+
+export function forwardPort(id: string): Promise<ConnectInfo> {
+  return request<ConnectInfo>(`/servers/${id}/connect/forward`, { method: "POST" });
+}
+
+export function unforwardPort(id: string): Promise<void> {
+  return request<void>(`/servers/${id}/connect/forward`, { method: "DELETE" });
+}
+
 /* --- modpacks --- */
 
 export interface ModpackPlan {
