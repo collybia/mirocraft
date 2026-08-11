@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Errors.
@@ -283,8 +284,21 @@ func (m *Manager) Open(serverID, backupID string) (*os.File, os.FileInfo, error)
 }
 
 // SuggestName is the file name offered when downloading.
+//
+// Unlike sanitize, this keeps letters of any script: it names a download, not
+// a path, and mime.FormatMediaType encodes what browsers cannot take raw. A
+// server called "Выживание" arriving as ________.zip helps nobody.
 func SuggestName(serverName string, at time.Time) string {
-	clean := sanitize(serverName)
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(serverName) {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r), r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	clean := strings.Trim(b.String(), "_")
 	if clean == "" {
 		clean = "server"
 	}

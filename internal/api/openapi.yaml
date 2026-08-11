@@ -2784,7 +2784,7 @@ components:
               ip: { type: string }
               kind:
                 type: string
-                enum: [public, hamachi, radmin, zerotier, tailscale, lan, loopback]
+                enum: [public, hamachi, radmin, zerotier, tailscale, lan, virtual, reserved, loopback]
               interface: { type: string, description: имя сетевого адаптера }
         internet:
           type: object

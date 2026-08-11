@@ -695,6 +695,8 @@ export type AddressKind =
   | "zerotier"
   | "tailscale"
   | "lan"
+  | "virtual"
+  | "reserved"
   | "loopback";
 
 export type InternetState =

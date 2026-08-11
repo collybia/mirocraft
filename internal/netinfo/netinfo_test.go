@@ -29,10 +29,17 @@ func TestOverlaysAreIdentifiedByAdapterNotByRange(t *testing.T) {
 		{"10.0.0.4", "eth0", KindLAN},
 		{"172.16.3.1", "Ethernet 2", KindLAN},
 		{"127.0.0.1", "lo", KindLoopback},
-		{"203.0.113.7", "eth0", KindPublic},
+		{"104.143.201.14", "eth0", KindPublic},
 
 		// Carrier-grade NAT is not the internet, whatever the provider says.
 		{"100.71.4.9", "eth0", KindTailscale},
+
+		// A virtual switch holds an ordinary private address and reaches
+		// nobody. Told apart by the adapter, because by range it is the flat.
+		{"172.28.48.1", "vEthernet (WSL (Hyper-V firewall))", KindVirtual},
+		{"192.168.137.1", "vEthernet (Default Switch)", KindVirtual},
+		{"172.17.0.1", "docker0", KindVirtual},
+		{"192.168.56.1", "VirtualBox Host-Only Network", KindVirtual},
 	}
 
 	for _, c := range cases {
@@ -42,18 +49,55 @@ func TestOverlaysAreIdentifiedByAdapterNotByRange(t *testing.T) {
 	}
 }
 
+// Public is decided by exclusion, and this is the list of exclusions. Every
+// case here was found on a real machine: a VPN client's tunnel adapter sat on
+// 198.18.0.1, the panel called it "works for everyone" and offered it as the
+// address to hand out.
+func TestRangesThatNeverReachTheInternetAreNotCalledPublic(t *testing.T) {
+	cases := []string{
+		"198.18.0.1",   // benchmarking — where VPN tunnel adapters live
+		"198.19.255.1", // the far end of the same block
+		"192.0.2.7",    // TEST-NET-1
+		"198.51.100.7", // TEST-NET-2
+		"203.0.113.7",  // TEST-NET-3
+		"192.0.0.8",    // IETF protocol assignments
+		"192.88.99.1",  // 6to4 relay anycast
+		"240.0.0.1",    // reserved
+		"255.255.255.255",
+		"0.0.0.0",
+	}
+	for _, ip := range cases {
+		if got := classify(net.ParseIP(ip), "wwan99"); got != KindReserved {
+			t.Errorf("%s = %q, want %q", ip, got, KindReserved)
+		}
+	}
+
+	// The neighbours of those blocks are ordinary internet addresses, and
+	// refusing them would be the same mistake in the other direction.
+	for _, ip := range []string{"198.17.255.1", "198.20.0.1", "203.0.112.1", "104.143.201.14"} {
+		if got := classify(net.ParseIP(ip), "eth0"); got != KindPublic {
+			t.Errorf("%s = %q, want %q", ip, got, KindPublic)
+		}
+	}
+}
+
 // The first address in the list is the one to hand out, so the order is part
 // of the answer rather than a detail.
 func TestTheMostUsefulAddressComesFirst(t *testing.T) {
 	addrs := []Address{
 		{IP: "127.0.0.1", Kind: KindLoopback},
+		{IP: "198.18.0.1", Kind: KindReserved},
+		{IP: "172.28.48.1", Kind: KindVirtual},
 		{IP: "192.168.1.5", Kind: KindLAN},
 		{IP: "25.34.12.9", Kind: KindHamachi},
-		{IP: "203.0.113.7", Kind: KindPublic},
+		{IP: "104.143.201.14", Kind: KindPublic},
 	}
 	sortByUsefulness(addrs)
 
-	want := []string{"203.0.113.7", "25.34.12.9", "192.168.1.5", "127.0.0.1"}
+	want := []string{
+		"104.143.201.14", "25.34.12.9", "192.168.1.5",
+		"172.28.48.1", "198.18.0.1", "127.0.0.1",
+	}
 	for i, ip := range want {
 		if addrs[i].IP != ip {
 			t.Fatalf("order = %v, want %v", addrs, want)

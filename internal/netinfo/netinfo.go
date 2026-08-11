@@ -32,6 +32,14 @@ const (
 	KindTailscale Kind = "tailscale"
 	// KindLAN is the local network — the flat, the office.
 	KindLAN Kind = "lan"
+	// KindVirtual is an adapter a hypervisor or a container runtime made up:
+	// WSL, Hyper-V, VirtualBox, docker0. It looks like a local network and is
+	// not one — nobody else in the flat is on it.
+	KindVirtual Kind = "virtual"
+	// KindReserved is an address from a range that is not routed on the
+	// internet at all. VPN clients hand these out, and calling one public
+	// would send somebody to an address that can never answer.
+	KindReserved Kind = "reserved"
 	// KindLoopback is this machine and nothing else.
 	KindLoopback Kind = "loopback"
 )
@@ -51,11 +59,51 @@ type Address struct {
 // addresses in 25.0.0.0/8 and Radmin in 26.0.0.0/8, and both of those are real
 // public ranges that somebody genuinely holds — calling a public address
 // "Hamachi" because it starts with 25 would be a confident lie.
+// Virtual adapters are here for the opposite reason: their addresses are
+// ordinary private ones, indistinguishable from the flat's network by range.
+// "vEthernet (WSL)" holds 172.28.48.1 and nobody in the flat can reach it.
 var adapterNames = map[string]Kind{
-	"hamachi":   KindHamachi,
-	"radmin":    KindRadmin,
-	"zerotier":  KindZeroTier,
-	"tailscale": KindTailscale,
+	"hamachi":    KindHamachi,
+	"radmin":     KindRadmin,
+	"zerotier":   KindZeroTier,
+	"tailscale":  KindTailscale,
+	"vethernet":  KindVirtual,
+	"wsl":        KindVirtual,
+	"hyper-v":    KindVirtual,
+	"vmnet":      KindVirtual,
+	"vmware":     KindVirtual,
+	"virtualbox": KindVirtual,
+	"host-only":  KindVirtual,
+	"docker":     KindVirtual,
+	"virbr":      KindVirtual,
+}
+
+// notRouted lists IPv4 ranges that exist but never travel the public internet.
+//
+// Without this the fallback below calls everything it does not recognise
+// public — and a VPN client's tunnel adapter, which typically sits in
+// 198.18.0.0/15, gets announced as "hand this to your friends".
+//
+// Private, loopback and link-local ranges are not repeated here; the standard
+// library already answers for those.
+var notRouted = []*net.IPNet{
+	mustCIDR("0.0.0.0/8"),       // "this network"
+	mustCIDR("192.0.0.0/24"),    // IETF protocol assignments
+	mustCIDR("192.0.2.0/24"),    // TEST-NET-1
+	mustCIDR("192.88.99.0/24"),  // 6to4 relay anycast, deprecated
+	mustCIDR("198.18.0.0/15"),   // benchmarking, RFC 2544
+	mustCIDR("198.51.100.0/24"), // TEST-NET-2
+	mustCIDR("203.0.113.0/24"),  // TEST-NET-3
+	mustCIDR("224.0.0.0/4"),     // multicast
+	mustCIDR("240.0.0.0/4"),     // reserved, and 255.255.255.255 with it
+}
+
+func mustCIDR(s string) *net.IPNet {
+	_, network, err := net.ParseCIDR(s)
+	if err != nil {
+		panic("netinfo: bad constant CIDR " + s + ": " + err.Error())
+	}
+	return network
 }
 
 // Addresses lists every address this machine answers on, newest question
@@ -127,6 +175,14 @@ func classify(ip net.IP, ifaceName string) Kind {
 	if four := ip.To4(); four != nil && four[0] == 100 && four[1] >= 64 && four[1] <= 127 {
 		return KindTailscale
 	}
+	// Public is decided by exclusion, so everything excluded has to be listed:
+	// what is left over is handed to somebody's friends as "works for
+	// everyone", and being wrong about that costs them an evening.
+	for _, network := range notRouted {
+		if network.Contains(ip) {
+			return KindReserved
+		}
+	}
 	return KindPublic
 }
 
@@ -139,7 +195,9 @@ var order = map[Kind]int{
 	KindZeroTier:  3,
 	KindTailscale: 4,
 	KindLAN:       5,
-	KindLoopback:  6,
+	KindVirtual:   6,
+	KindReserved:  7,
+	KindLoopback:  8,
 }
 
 func sortByUsefulness(addrs []Address) {

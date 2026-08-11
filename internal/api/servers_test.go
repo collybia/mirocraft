@@ -90,6 +90,44 @@ func TestCreateServerRequiresEULA(t *testing.T) {
 	}
 }
 
+// The panel is used in Russian and every example in its own documentation is
+// Russian, but a server called "Выживание" was refused with a message saying
+// only letters were allowed. The rule was justified by names becoming
+// directory names, and they never did: a server's directory is its id.
+func TestServerNamesAreNotLimitedToLatin(t *testing.T) {
+	accepted := []string{
+		"Выживание", "Тех-мир 2", "夜のサーバー", "Sürvival", "home", "7",
+		"a b", "a-b", "a_b",
+	}
+	for _, name := range accepted {
+		if got, err := normalizeServerName(name); err != nil {
+			t.Errorf("%q refused: %v", name, err)
+		} else if got != name {
+			t.Errorf("%q stored as %q", name, got)
+		}
+	}
+
+	// What the rule is actually for. The last two are the interesting ones:
+	// invisible runes let a name render as one thing and compare as another,
+	// and a delete confirmation compares names.
+	refused := []string{
+		"", "   ", "../../etc", "a/b", `a\b`, "a:b", "a*b", "-lead", "trail-",
+		"a\tb", "a\x00b", "emoji 🎮",
+		"\u202eevil", // right-to-left override
+		"a\u200bb",   // zero-width space
+	}
+	// Padding is trimmed rather than refused, on purpose: storing the raw
+	// input would save a name that DELETE ?confirm= could never match.
+	if got, err := normalizeServerName("  pad  "); err != nil || got != "pad" {
+		t.Errorf(`normalizeServerName("  pad  ") = %q, %v`, got, err)
+	}
+	for _, name := range refused {
+		if got, err := normalizeServerName(name); err == nil {
+			t.Errorf("%q accepted as %q", name, got)
+		}
+	}
+}
+
 func TestCreateServerValidation(t *testing.T) {
 	e := newTestEnv(t)
 	token := e.writeToken()

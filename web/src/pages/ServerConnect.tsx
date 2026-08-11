@@ -14,6 +14,8 @@ const KIND_LABELS: Record<api.AddressKind, string> = {
   zerotier: "ZeroTier",
   tailscale: "Tailscale",
   lan: "Локальная сеть",
+  virtual: "Виртуальный адаптер",
+  reserved: "Служебный адрес",
   loopback: "Только эта машина",
 };
 
@@ -25,6 +27,8 @@ const KIND_HINTS: Record<api.AddressKind, string> = {
   zerotier: "для тех, кто в вашей сети ZeroTier",
   tailscale: "для тех, кто в вашей сети Tailscale",
   lan: "для тех, кто в той же квартире или офисе",
+  virtual: "адаптер виртуалки или контейнера — снаружи туда не попасть",
+  reserved: "служебный диапазон, обычно адаптер VPN-клиента — снаружи не работает",
   loopback: "не годится никому, кроме вас",
 };
 

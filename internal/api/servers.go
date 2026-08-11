@@ -8,9 +8,9 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/collybia/mirocraft/internal/core"
 	"github.com/collybia/mirocraft/internal/daemon"
@@ -36,13 +36,12 @@ const (
 	ActionKill    = "kill"
 )
 
-// serverNamePattern keeps names safe to use as directory names, which is what
-// they become on disk.
-// A name must start and end with an alphanumeric so it cannot be pure
-// punctuation or carry leading and trailing spaces, but a single character is
-// a perfectly good name — hence the alternation rather than a bare
-// start-middle-end pattern, which silently imposed a two-character minimum.
-var serverNamePattern = regexp.MustCompile(`^[a-zA-Z0-9]$|^[a-zA-Z0-9][a-zA-Z0-9 _-]{0,62}[a-zA-Z0-9]$`)
+// nameSeparators are the characters allowed inside a name but not at its ends.
+//
+// A name must start and end with a letter or a digit, so that it cannot be
+// pure punctuation or carry padding that only shows up when something else
+// quotes it. A single character is a perfectly good name.
+const nameSeparators = " _-"
 
 // Pinger asks a running server for its player counts.
 //
@@ -881,13 +880,42 @@ func normalizeServerName(name string) (string, error) {
 	if len([]rune(name)) > MaxServerLen {
 		return "", errors.New("name must be at most 64 characters")
 	}
-	// The name becomes part of a path, so anything that could traverse or
-	// confuse a filesystem is refused rather than escaped.
-	if !serverNamePattern.MatchString(name) {
-		return "", errors.New("name may contain only letters, digits, spaces, hyphens and underscores, " +
-			"and must start and end with a letter or a digit")
+	if err := checkNameRunes(name); err != nil {
+		return "", err
 	}
 	return name, nil
+}
+
+// checkNameRunes accepts letters and digits in any script, plus spaces,
+// hyphens and underscores between them.
+//
+// Letters means letters, not [a-zA-Z]. The panel is used in Russian, every
+// example in its own documentation is Russian, and "Выживание" was refused
+// with a message that said only letters were allowed — which read as a lie.
+// The old rule was justified by names becoming directory names; they do not.
+// A server's directory is its id (see serverDir), and the one place a name
+// reaches a filesystem is the suggested download name for a backup, which is
+// sanitised where it is built.
+//
+// What is still refused is anything that is not a letter or a digit:
+// separators, control characters, and the invisible formatting runes that let
+// a name render as something other than what a delete confirmation compares.
+func checkNameRunes(name string) error {
+	fail := errors.New("name may contain only letters, digits, spaces, hyphens and underscores, " +
+		"and must start and end with a letter or a digit")
+
+	for i, r := range []rune(name) {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r):
+		case strings.ContainsRune(nameSeparators, r):
+			if i == 0 || i == len([]rune(name))-1 {
+				return fail
+			}
+		default:
+			return fail
+		}
+	}
+	return nil
 }
 
 // applyProxyLink validates and sets a server's proxy.
