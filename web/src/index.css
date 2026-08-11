@@ -62,6 +62,17 @@
   textarea {
     color-scheme: inherit;
   }
+
+  /* Someone who turned animation off in their system settings meant it. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
 }
 
 @layer components {
@@ -69,6 +80,22 @@
     background-color: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  /* A card that is a link to somewhere. The border, not the background, does
+     the reacting: a whole panel changing colour under the pointer is louder
+     than the pointer itself. */
+  .card-interactive {
+    transition:
+      border-color 120ms ease,
+      box-shadow 120ms ease,
+      transform 120ms ease;
+  }
+
+  .card-interactive:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-lifted);
   }
 
   .field {
@@ -78,6 +105,11 @@
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-sm);
     padding: 0.5rem 0.75rem;
+    transition: border-color 120ms ease;
+  }
+
+  .field:hover:not(:disabled) {
+    border-color: var(--text-faint);
   }
 
   .field::placeholder {
@@ -92,13 +124,31 @@
     border-radius: var(--radius-sm);
     padding: 0.5rem 0.9rem;
     font-weight: 500;
+    line-height: 1.25rem;
     border: 1px solid transparent;
     cursor: pointer;
+    white-space: nowrap;
+    transition:
+      background-color 120ms ease,
+      border-color 120ms ease,
+      color 120ms ease;
   }
 
   .btn:disabled {
-    opacity: 0.5;
+    opacity: 0.45;
     cursor: not-allowed;
+  }
+
+  .btn-sm {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.8125rem;
+  }
+
+  /* Square, for a button whose whole content is one icon. */
+  .btn-icon {
+    padding: 0.4rem;
+    width: 2rem;
+    height: 2rem;
   }
 
   .btn-primary {
@@ -117,12 +167,149 @@
   }
 
   .btn-ghost:hover:not(:disabled) {
-    background-color: var(--bg-elevated);
+    background-color: var(--bg-hover);
+  }
+
+  /* No border at all: for dense clusters where a row of outlined boxes reads
+     as a fence rather than as controls. */
+  .btn-quiet {
+    background-color: transparent;
+    color: var(--text-muted);
+  }
+
+  .btn-quiet:hover:not(:disabled) {
+    background-color: var(--bg-hover);
+    color: var(--text);
   }
 
   .btn-danger {
-    background-color: var(--danger-bg);
+    background-color: transparent;
     color: var(--danger);
     border-color: var(--danger);
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background-color: var(--danger-bg);
+  }
+
+  /* --- navigation --- */
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.7rem;
+    color: var(--text-muted);
+    font-size: 0.9375rem;
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+
+  .nav-item:hover {
+    background-color: var(--bg-hover);
+    color: var(--text);
+  }
+
+  .nav-item-active {
+    background-color: var(--accent-bg);
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  .nav-item-active:hover {
+    background-color: var(--accent-bg);
+    color: var(--accent);
+  }
+
+  /* --- tabs --- */
+
+  /* A segmented control rather than underlined links: the tabs sit inside a
+     page that already has a header rule, and a second horizontal line under
+     them made the page read as two pages stacked. */
+  .segmented {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.125rem;
+    background-color: var(--bg-sunken);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.25rem;
+  }
+
+  .segment {
+    border-radius: var(--radius-sm);
+    padding: 0.375rem 0.7rem;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+
+  .segment:hover {
+    color: var(--text);
+  }
+
+  .segment-active {
+    background-color: var(--bg-elevated);
+    color: var(--text);
+    box-shadow: var(--shadow);
+  }
+
+  /* --- status --- */
+
+  .dot {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    flex: none;
+  }
+
+  /* A running server is the one thing worth catching out of the corner of an
+     eye, so its dot breathes. Everything else holds still. */
+  .dot-live {
+    animation: dot-pulse 2.4s ease-in-out infinite;
+  }
+
+  @keyframes dot-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 9999px;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1.125rem;
+    white-space: nowrap;
+  }
+
+  /* --- loading --- */
+
+  .skeleton {
+    background-color: var(--bg-hover);
+    border-radius: var(--radius-sm);
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes skeleton-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.45;
+    }
   }
 }

@@ -26,10 +26,18 @@ const PAIRS = [
   ["--text", "--bg"],
   ["--text", "--bg-elevated"],
   ["--text", "--bg-inset"],
+  // The sidebar and the hover wash carry text too. They were added later than
+  // the rest, and a surface outside this list is a surface nothing checks.
+  ["--text", "--bg-sunken"],
+  ["--text", "--bg-hover"],
+  ["--text", "--bg-active"],
   ["--text-muted", "--bg"],
   ["--text-muted", "--bg-elevated"],
+  ["--text-muted", "--bg-sunken"],
+  ["--text-muted", "--bg-hover"],
   ["--text-faint", "--bg", { large: true }],
   ["--accent-fg", "--accent"],
+  ["--accent", "--accent-bg"],
   ["--accent", "--bg", { large: true }],
   ["--success", "--bg", { large: true }],
   ["--success", "--success-bg"],

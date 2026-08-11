@@ -460,6 +460,12 @@ paths:
       parameters:
         - { name: status, in: query, schema: { $ref: "#/components/schemas/ServerStatus" } }
         - { name: core, in: query, schema: { type: string, example: paper } }
+        - name: metrics
+          in: query
+          description: >-
+            Посчитать нагрузку каждого запущенного сервера. Стоит вызова
+            статистики и пинга на сервер, поэтому по умолчанию выключено.
+          schema: { type: string, enum: ["1", "true", "yes", "on"] }
       responses:
         "200":
           description: список
@@ -2374,7 +2380,11 @@ components:
       type: object
       properties:
         cpu_percent: { type: number, format: float }
-        memory_mb: { type: integer }
+        ram_used_mb: { type: integer }
+        # Потолок, который держит рантайм: heap плюс то, что JVM выделяет вне
+        # него. Делить использование на heap нельзя — здоровый сервер выглядит
+        # вышедшим за лимит. Отсутствует, если лимита нет.
+        ram_limit_mb: { type: integer }
         players_online: { type: integer, nullable: true }
         players_max: { type: integer, nullable: true }
         uptime_seconds: { type: integer }

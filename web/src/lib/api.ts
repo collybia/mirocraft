@@ -29,6 +29,8 @@ export interface Me extends User {
 
 export interface ServerMetrics {
   ram_used_mb: number;
+  /** Потолок, который рантайм действительно держит: heap плюс служебное. */
+  ram_limit_mb?: number;
   cpu_percent: number;
   uptime_seconds: number;
   players_online: number | null;
@@ -36,12 +38,7 @@ export interface ServerMetrics {
 }
 
 export type ServerStatus =
-  | "creating"
-  | "stopped"
-  | "starting"
-  | "running"
-  | "stopping"
-  | "crashed";
+  "creating" | "stopped" | "starting" | "running" | "stopping" | "crashed";
 
 export interface Server {
   id: string;
@@ -124,7 +121,12 @@ export class ApiError extends Error {
   status: number;
   details?: Record<string, unknown>;
 
-  constructor(status: number, code: string, message: string, details?: Record<string, unknown>) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    details?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -184,11 +186,17 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 /* --- auth --- */
 
-export async function login(email: string, password: string): Promise<{ token: string; user: User }> {
-  const body = await request<{ token: string; expires_at: string; user: User }>("/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ email, password }),
-  });
+export async function login(
+  email: string,
+  password: string,
+): Promise<{ token: string; user: User }> {
+  const body = await request<{ token: string; expires_at: string; user: User }>(
+    "/auth/login",
+    {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    },
+  );
   setToken(body.token);
   return body;
 }
@@ -213,13 +221,22 @@ export function updateMe(patch: {
   old_password?: string;
   theme?: string;
 }): Promise<User> {
-  return request<User>("/users/me", { method: "PATCH", body: JSON.stringify(patch) });
+  return request<User>("/users/me", {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
 }
 
 /* --- servers --- */
 
-export async function listServers(): Promise<Server[]> {
-  const body = await request<ListResponse<Server>>("/servers");
+/**
+ * Список серверов. `metrics` просит демон посчитать нагрузку каждого —
+ * это стоит пинга и вызова статистики на сервер, поэтому спрашивается явно.
+ */
+export async function listServers(metrics = false): Promise<Server[]> {
+  const body = await request<ListResponse<Server>>(
+    `/servers${metrics ? "?metrics=1" : ""}`,
+  );
   return body.items;
 }
 
@@ -235,11 +252,16 @@ export function createServer(input: {
   port?: number;
   eula_accepted: boolean;
 }): Promise<Server> {
-  return request<Server>("/servers", { method: "POST", body: JSON.stringify(input) });
+  return request<Server>("/servers", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export function deleteServer(id: string, name: string): Promise<void> {
-  return request<void>(`/servers/${id}?confirm=${encodeURIComponent(name)}`, { method: "DELETE" });
+  return request<void>(`/servers/${id}?confirm=${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
 }
 
 export function power(
@@ -258,7 +280,10 @@ export function getTask(id: string): Promise<Task> {
 
 /* --- console --- */
 
-export async function consoleHistory(id: string, lines = 500): Promise<ConsoleLine[]> {
+export async function consoleHistory(
+  id: string,
+  lines = 500,
+): Promise<ConsoleLine[]> {
   const body = await request<ListResponse<ConsoleLine>>(
     `/servers/${id}/console/history?lines=${lines}`,
   );
@@ -272,10 +297,15 @@ export function sendCommand(id: string, command: string): Promise<void> {
   });
 }
 
-export function consoleTicket(id: string): Promise<{ ticket: string; expires_at: string }> {
-  return request<{ ticket: string; expires_at: string }>(`/servers/${id}/console/ticket`, {
-    method: "POST",
-  });
+export function consoleTicket(
+  id: string,
+): Promise<{ ticket: string; expires_at: string }> {
+  return request<{ ticket: string; expires_at: string }>(
+    `/servers/${id}/console/ticket`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 /**
@@ -315,17 +345,27 @@ export async function readFile(id: string, path: string): Promise<string> {
   return body.content;
 }
 
-export function writeFile(id: string, path: string, content: string): Promise<void> {
-  return request<void>(`/servers/${id}/files/content?path=${encodeURIComponent(path)}`, {
-    method: "PUT",
-    body: JSON.stringify({ content }),
-  });
+export function writeFile(
+  id: string,
+  path: string,
+  content: string,
+): Promise<void> {
+  return request<void>(
+    `/servers/${id}/files/content?path=${encodeURIComponent(path)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    },
+  );
 }
 
 export function deleteFile(id: string, path: string): Promise<void> {
-  return request<void>(`/servers/${id}/files?path=${encodeURIComponent(path)}`, {
-    method: "DELETE",
-  });
+  return request<void>(
+    `/servers/${id}/files?path=${encodeURIComponent(path)}`,
+    {
+      method: "DELETE",
+    },
+  );
 }
 
 export function makeDirectory(id: string, path: string): Promise<void> {
@@ -342,7 +382,11 @@ export function movePath(id: string, from: string, to: string): Promise<void> {
   });
 }
 
-export function unarchive(id: string, path: string, destination: string): Promise<void> {
+export function unarchive(
+  id: string,
+  path: string,
+  destination: string,
+): Promise<void> {
   return request<void>(`/servers/${id}/files/unarchive`, {
     method: "POST",
     body: JSON.stringify({ path, destination }),
@@ -354,7 +398,11 @@ export function unarchive(id: string, path: string, destination: string): Promis
  * sets a JSON content type, and a multipart body needs the boundary the
  * browser generates.
  */
-export async function uploadFile(id: string, dir: string, file: File): Promise<void> {
+export async function uploadFile(
+  id: string,
+  dir: string,
+  file: File,
+): Promise<void> {
   const form = new FormData();
   form.append("path", dir);
   form.append("file", file);
@@ -396,7 +444,11 @@ export async function downloadFile(id: string, path: string): Promise<void> {
     { headers },
   );
   if (!response.ok) {
-    throw new ApiError(response.status, "download_failed", "Не удалось скачать файл");
+    throw new ApiError(
+      response.status,
+      "download_failed",
+      "Не удалось скачать файл",
+    );
   }
 
   const blob = await response.blob();
@@ -435,7 +487,10 @@ export function getSettings(id: string): Promise<Settings> {
   return request<Settings>(`/servers/${id}/settings`);
 }
 
-export function patchSettings(id: string, values: Record<string, string>): Promise<Settings> {
+export function patchSettings(
+  id: string,
+  values: Record<string, string>,
+): Promise<Settings> {
   return request<Settings>(`/servers/${id}/settings`, {
     method: "PATCH",
     body: JSON.stringify(values),
@@ -466,7 +521,10 @@ export async function listBackups(id: string): Promise<Backup[]> {
   return body.items;
 }
 
-export function createBackup(id: string, note?: string): Promise<{ task_id: string }> {
+export function createBackup(
+  id: string,
+  note?: string,
+): Promise<{ task_id: string }> {
   return request<{ task_id: string }>(`/servers/${id}/backups`, {
     method: "POST",
     body: JSON.stringify({ note: note ?? "" }),
@@ -474,13 +532,21 @@ export function createBackup(id: string, note?: string): Promise<{ task_id: stri
 }
 
 export function deleteBackup(id: string, backupId: string): Promise<void> {
-  return request<void>(`/servers/${id}/backups/${backupId}`, { method: "DELETE" });
+  return request<void>(`/servers/${id}/backups/${backupId}`, {
+    method: "DELETE",
+  });
 }
 
-export function restoreBackup(id: string, backupId: string): Promise<{ task_id: string }> {
-  return request<{ task_id: string }>(`/servers/${id}/backups/${backupId}/restore`, {
-    method: "POST",
-  });
+export function restoreBackup(
+  id: string,
+  backupId: string,
+): Promise<{ task_id: string }> {
+  return request<{ task_id: string }>(
+    `/servers/${id}/backups/${backupId}/restore`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export function getBackupSchedule(id: string): Promise<BackupSchedule> {
@@ -499,16 +565,27 @@ export function putBackupSchedule(
 
 /** Downloads through the client for the same reason files do: the endpoint
  *  needs an Authorization header, and a plain link cannot carry one. */
-export async function downloadBackup(id: string, backupId: string, name: string): Promise<void> {
+export async function downloadBackup(
+  id: string,
+  backupId: string,
+  name: string,
+): Promise<void> {
   const headers = new Headers();
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const response = await fetch(`${API_BASE}/servers/${id}/backups/${backupId}/download`, {
-    headers,
-  });
+  const response = await fetch(
+    `${API_BASE}/servers/${id}/backups/${backupId}/download`,
+    {
+      headers,
+    },
+  );
   if (!response.ok) {
-    throw new ApiError(response.status, "download_failed", "Не удалось скачать бэкап");
+    throw new ApiError(
+      response.status,
+      "download_failed",
+      "Не удалось скачать бэкап",
+    );
   }
 
   const blob = await response.blob();
@@ -537,7 +614,10 @@ export function patchServer(
     crossplay?: boolean;
   },
 ): Promise<Server> {
-  return request<Server>(`/servers/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+  return request<Server>(`/servers/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
 }
 
 /* --- administration --- */
@@ -554,7 +634,10 @@ export function createUser(input: {
   max_servers?: number;
   max_ram_mb?: number;
 }): Promise<User> {
-  return request<User>("/admin/users", { method: "POST", body: JSON.stringify(input) });
+  return request<User>("/admin/users", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export function patchUser(
@@ -567,7 +650,10 @@ export function patchUser(
     max_ram_mb?: number;
   },
 ): Promise<User> {
-  return request<User>(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+  return request<User>(`/admin/users/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
 }
 
 export function deleteUser(id: string): Promise<void> {
@@ -675,14 +761,20 @@ export function installAddon(
   id: string,
   input: { project_id: string; version_id?: string; dry_run?: boolean },
 ): Promise<{ task_id?: string; plan?: InstallPlan; files?: PlannedFile[] }> {
-  return request<{ task_id?: string; plan?: InstallPlan; files?: PlannedFile[] }>(
-    `/servers/${id}/catalog/install`,
-    { method: "POST", body: JSON.stringify(input) },
-  );
+  return request<{
+    task_id?: string;
+    plan?: InstallPlan;
+    files?: PlannedFile[];
+  }>(`/servers/${id}/catalog/install`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export async function listInstalled(id: string): Promise<InstalledAddon[]> {
-  const body = await request<ListResponse<InstalledAddon>>(`/servers/${id}/installed`);
+  const body = await request<ListResponse<InstalledAddon>>(
+    `/servers/${id}/installed`,
+  );
   return body.items;
 }
 
@@ -732,7 +824,9 @@ export function serverConnect(id: string): Promise<ConnectInfo> {
 }
 
 export function forwardPort(id: string): Promise<ConnectInfo> {
-  return request<ConnectInfo>(`/servers/${id}/connect/forward`, { method: "POST" });
+  return request<ConnectInfo>(`/servers/${id}/connect/forward`, {
+    method: "POST",
+  });
 }
 
 export function unforwardPort(id: string): Promise<void> {
@@ -768,8 +862,12 @@ export interface InstalledModpack {
   installed_at: string;
 }
 
-export async function serverModpack(id: string): Promise<InstalledModpack | null> {
-  const body = await request<{ installed: InstalledModpack | null }>(`/servers/${id}/modpack`);
+export async function serverModpack(
+  id: string,
+): Promise<InstalledModpack | null> {
+  const body = await request<{ installed: InstalledModpack | null }>(
+    `/servers/${id}/modpack`,
+  );
   return body.installed;
 }
 
@@ -777,10 +875,9 @@ export function installModpack(
   id: string,
   input: { project_id: string; version_id?: string; dry_run?: boolean },
 ): Promise<{ task_id?: string; plan?: ModpackPlan } & Partial<ModpackPlan>> {
-  return request<{ task_id?: string; plan?: ModpackPlan } & Partial<ModpackPlan>>(
-    `/servers/${id}/modpack`,
-    { method: "POST", body: JSON.stringify(input) },
-  );
+  return request<
+    { task_id?: string; plan?: ModpackPlan } & Partial<ModpackPlan>
+  >(`/servers/${id}/modpack`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export function toggleInstalled(
@@ -825,7 +922,12 @@ export function createCustomTheme(theme: {
 
 export function updateCustomTheme(
   id: string,
-  theme: { schema: string; name: string; base: string; vars: Record<string, string> },
+  theme: {
+    schema: string;
+    name: string;
+    base: string;
+    vars: Record<string, string>;
+  },
 ): Promise<CustomTheme> {
   return request<CustomTheme>(`/users/me/themes/${id}`, {
     method: "PATCH",
@@ -954,6 +1056,8 @@ export async function listCores(): Promise<Core[]> {
 }
 
 export async function listCoreVersions(core: string): Promise<CoreVersion[]> {
-  const body = await request<ListResponse<CoreVersion>>(`/cores/${core}/versions`);
+  const body = await request<ListResponse<CoreVersion>>(
+    `/cores/${core}/versions`,
+  );
   return body.items;
 }

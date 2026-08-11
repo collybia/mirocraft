@@ -50,7 +50,7 @@ irm https://raw.githubusercontent.com/collybia/mirocraft/master/installer/instal
 | | |
 |---|---|
 | ![Список серверов](docs/screenshots/servers.png) | ![Консоль сервера](docs/screenshots/console.png) |
-| Серверы: ядро, порт, память, статус | Консоль по WebSocket, память, CPU, аптайм, игроки |
+| Игроки, нагрузка и управление прямо на карточке | Консоль по WebSocket, память, CPU, аптайм, игроки |
 | ![Модпаки](docs/screenshots/modpacks.png) | ![Темы](docs/screenshots/themes.png) |
 | Модпак в один клик — вместе с загрузчиком | Пять встроенных тем и редактор своих |
 

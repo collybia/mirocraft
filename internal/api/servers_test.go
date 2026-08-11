@@ -608,3 +608,51 @@ func TestUnknownTaskIsNotFound(t *testing.T) {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
 	}
 }
+
+// The panel's server list draws load figures, and it used to draw dashes:
+// metrics were computed only by the single-server endpoint, so every card said
+// "— игроков — CPU" about a server that was busy. They are opt-in because a
+// caller that only wants to know which servers exist should not pay for a
+// stats call and a ping per server.
+func TestListServersReportsMetricsOnlyWhenAsked(t *testing.T) {
+	e := newTestEnv(t)
+	e.startServer(testServerID)
+
+	plain := decodeJSON[listResponse[serverResponse]](
+		t, e.do(http.MethodGet, "/api/v1/servers", nil, e.token)).Items
+	if len(plain) != 1 {
+		t.Fatalf("listed %d servers, want 1", len(plain))
+	}
+	if plain[0].Metrics != nil {
+		t.Errorf("metrics arrived unasked: %+v", plain[0].Metrics)
+	}
+
+	withMetrics := decodeJSON[listResponse[serverResponse]](
+		t, e.do(http.MethodGet, "/api/v1/servers?metrics=1", nil, e.token)).Items
+	if len(withMetrics) != 1 {
+		t.Fatalf("listed %d servers, want 1", len(withMetrics))
+	}
+	if withMetrics[0].Metrics == nil {
+		t.Fatal("a running server reported no metrics")
+	}
+	// Uptime is the one figure a stub cannot fake into existence: the process
+	// really did start, so it really has been up for some number of seconds.
+	if withMetrics[0].Metrics.UptimeSeconds < 0 {
+		t.Errorf("uptime = %d", withMetrics[0].Metrics.UptimeSeconds)
+	}
+}
+
+// A stopped server has nothing to report, and asking for metrics must not turn
+// that into an error or a row of zeroes that look like measurements.
+func TestListServersLeavesStoppedServersAlone(t *testing.T) {
+	e := newTestEnv(t)
+
+	items := decodeJSON[listResponse[serverResponse]](
+		t, e.do(http.MethodGet, "/api/v1/servers?metrics=yes", nil, e.token)).Items
+	if len(items) != 1 {
+		t.Fatalf("listed %d servers, want 1", len(items))
+	}
+	if items[0].Metrics != nil {
+		t.Errorf("a stopped server reported metrics: %+v", items[0].Metrics)
+	}
+}

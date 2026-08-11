@@ -27,7 +27,7 @@ mkdirSync(outDir, { recursive: true });
 
 // Wide enough that the layout is the desktop one. The height is set per shot:
 // a README image padded with empty page reads as an empty product.
-const WIDTH = 1280;
+const WIDTH = 1440;
 
 const browser = await chromium.launch();
 const context = await browser.newContext({
@@ -59,10 +59,13 @@ try {
   await shoot("themes", 700);
 
   await page.goto(baseURL, { waitUntil: "networkidle" });
-  await page.waitForTimeout(600);
-  await shoot("servers", 410);
+  // Long enough for the list to poll more than once: the load trace on a
+  // running server needs a second sample before there is a line to draw, and
+  // a README image of an empty chart is a README image of a missing feature.
+  await page.waitForTimeout(14000);
+  await shoot("servers", 560);
 
-  await page.locator("a", { hasText: "packtest" }).first().click();
+  await page.locator("a", { hasText: "Выживание" }).first().click();
   await page.waitForSelector("text=Консоль", { timeout: 20000 });
   // The console fills as the log streams in; a shot taken immediately catches
   // an empty box.

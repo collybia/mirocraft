@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -608,6 +609,7 @@ func (r *DockerRunner) Stats(ctx context.Context, id string) (Stats, error) {
 		return stats, nil //nolint:nilerr // missing statistics are not a failure
 	}
 	stats.RAMBytes = sample.MemoryBytes
+	stats.RAMLimitBytes = sample.MemoryLimit
 	stats.CPUPercent = sample.CPUPercent
 
 	// No PID: the server's process id belongs to the container's namespace and
@@ -657,6 +659,12 @@ func (r *DockerRunner) Adopt(ctx context.Context) error {
 			c.startedAt = startedAt.UTC()
 		}
 
+		// What the server said before this daemon existed. Read before the
+		// attach rather than after, so the two cannot overlap: a gap of the
+		// milliseconds between them is invisible in a log, while the same
+		// lines printed twice is the kind of thing people file bugs about.
+		r.seedScrollback(ctx, c, info.ID)
+
 		conn, err := r.client.Attach(ctx, info.ID)
 		if err != nil {
 			r.log.Warn("could not reattach to a running server; its console will be empty",
@@ -678,6 +686,54 @@ func (r *DockerRunner) Adopt(ctx context.Context) error {
 			slog.String("server_id", serverID), slog.String("container", info.ID[:12]))
 	}
 	return nil
+}
+
+// seedScrollback fills an adopted container's hub with what it already wrote.
+//
+// Best effort throughout: a console that is missing its history is worse than
+// one that has it and better than a daemon that refuses to adopt a running
+// server because the log could not be read.
+func (r *DockerRunner) seedScrollback(ctx context.Context, c *container, containerID string) {
+	logs, err := r.client.Logs(ctx, containerID, ConsoleBufferLines)
+	if err != nil {
+		r.log.Debug("could not read a container's log",
+			slog.String("server_id", c.id), slog.String("error", err.Error()))
+		return
+	}
+	defer func() { _ = logs.Close() }()
+
+	// The Engine does not timestamp these unless asked, and asking prefixes
+	// every line with a stamp that would then be printed twice — the server
+	// writes its own. The lines are therefore stamped with the moment they
+	// were read, which is a lie about when they were written, so they carry
+	// the container's start time instead: wrong by the length of the boot,
+	// honest about being older than everything that follows.
+	stamp := c.startedAt
+	if stamp.IsZero() {
+		stamp = time.Now().UTC()
+	}
+
+	var pending [3][]byte
+	for {
+		stream, payload, err := docker.DemuxFrame(logs)
+		if err != nil {
+			return
+		}
+		if stream < 0 || stream >= len(pending) {
+			continue
+		}
+
+		pending[stream] = append(pending[stream], payload...)
+		for {
+			cut := bytes.IndexByte(pending[stream], '\n')
+			if cut < 0 {
+				break
+			}
+			line := strings.TrimRight(string(pending[stream][:cut]), "\r")
+			pending[stream] = pending[stream][cut+1:]
+			c.hub.Publish(ConsoleLine{TS: stamp, Stream: streamName(stream), Text: line})
+		}
+	}
 }
 
 // RunningServers reports the ids of servers this runner currently supervises,

@@ -4,6 +4,9 @@
   --bg: #1c1210;
   --bg-elevated: #271916;
   --bg-inset: #140c0a;
+  --bg-sunken: #150d0b;
+  --bg-hover: #33211d;
+  --bg-active: #3c2823;
 
   --text: #f0e0d8;
   --text-muted: #c0a397;
@@ -12,6 +15,7 @@
   --accent: #ff6a3d;
   --accent-hover: #ff8a63;
   --accent-fg: #1a0803;
+  --accent-bg: #331610;
 
   --success: #9ccc65;
   --success-bg: #1e2812;
@@ -24,6 +28,9 @@
 
   --border: #3a2620;
   --border-strong: #8d7267;
+
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.32);
+  --shadow-lifted: 0 8px 24px -6px rgb(0 0 0 / 0.55);
 
   --radius: 8px;
   --radius-sm: 5px;

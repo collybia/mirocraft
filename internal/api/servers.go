@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -102,7 +103,10 @@ type powerRequest struct {
 }
 
 type serverMetrics struct {
-	RAMUsedMb     int     `json:"ram_used_mb"`
+	RAMUsedMb int `json:"ram_used_mb"`
+	// RAMLimitMb is what the runtime will actually allow, which is more than
+	// the configured heap. Omitted when nothing enforces a limit.
+	RAMLimitMb    int     `json:"ram_limit_mb,omitempty"`
 	CPUPercent    float64 `json:"cpu_percent"`
 	UptimeSeconds int64   `json:"uptime_seconds"`
 	PlayersOnline *int    `json:"players_online"`
@@ -172,7 +176,55 @@ func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
 		item.Status = a.liveStatus(r.Context(), s)
 		items = append(items, item)
 	}
+
+	// Metrics are opt-in because they are not free: each running server costs
+	// a stats call and a Minecraft ping with a timeout attached. A bot listing
+	// servers to answer "which exist" should not pay for load figures it will
+	// not print, and the panel's list, which draws them, asks.
+	if isTrue(r.URL.Query().Get("metrics")) {
+		a.attachMetrics(r.Context(), servers, items)
+	}
+
 	writeJSON(w, http.StatusOK, listResponse[serverResponse]{Items: items})
+}
+
+// attachMetrics fills in the metrics of every server in the list.
+//
+// Concurrently, and this is the point rather than an optimisation: the ping
+// carries a timeout, so ten servers done in turn would make the list wait for
+// the sum of ten timeouts. Bounded, because the alternative is a request that
+// opens one goroutine and one socket per server somebody happens to own.
+func (a *API) attachMetrics(ctx context.Context, servers []*store.Server, items []serverResponse) {
+	const parallel = 8
+
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, parallel)
+
+	for i := range items {
+		if !runner.Status(items[i].Status).IsActive() {
+			continue
+		}
+
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+
+			items[i].Metrics = a.metricsFor(ctx, servers[i], items[i].Status)
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// isTrue reads a query flag the way a person would write one.
+func isTrue(value string) bool {
+	switch strings.ToLower(value) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 // handleGetServer serves GET /servers/{id}, including live metrics.
@@ -843,6 +895,7 @@ func (a *API) metricsFor(ctx context.Context, server *store.Server, status strin
 
 	metrics := &serverMetrics{
 		RAMUsedMb:     int(stats.RAMBytes / (1024 * 1024)),
+		RAMLimitMb:    int(stats.RAMLimitBytes / (1024 * 1024)),
 		CPUPercent:    stats.CPUPercent,
 		UptimeSeconds: int64(stats.Uptime.Seconds()),
 	}

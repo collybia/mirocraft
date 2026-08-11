@@ -576,6 +576,35 @@ func (c *Client) Attach(ctx context.Context, id string) (net.Conn, error) {
 	return conn, nil
 }
 
+// Logs returns what a container has already written, most recent `tail` lines.
+//
+// Needed because attaching only carries what happens next. A daemon that
+// restarts — which is what an upgrade is — adopts containers that are still
+// running, and without this their consoles come back blank until the server
+// is restarted, which is exactly what somebody wanting to read the log was
+// trying to avoid.
+//
+// The payload is framed like attach, so the caller demultiplexes it the same
+// way. Returns a reader the caller must close.
+//
+// Through the HTTP client rather than the raw socket that attach uses: this is
+// an ordinary response, and the Engine sends it chunked. Reading the socket
+// directly, as the first attempt did, hands the chunk lengths to the frame
+// demultiplexer, which sees garbage and gives up — quietly, because a missing
+// log is not an error worth failing an adoption over. The console came back
+// empty and everything reported success.
+func (c *Client) Logs(ctx context.Context, id string, tail int) (io.ReadCloser, error) {
+	query := url.Values{
+		"stdout": {"1"}, "stderr": {"1"}, "tail": {strconv.Itoa(tail)},
+	}
+
+	resp, err := c.do(ctx, http.MethodGet, "/containers/"+id+"/logs", query, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Body, nil
+}
+
 // readResponseHead consumes the status line and headers, byte by byte, so that
 // nothing of the stream that follows is buffered away.
 func readResponseHead(conn net.Conn) error {

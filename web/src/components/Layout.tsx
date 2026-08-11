@@ -1,8 +1,20 @@
-import { Link, NavLink, useNavigate } from "react-router-dom";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 
 import * as api from "../lib/api";
 import { useTheme } from "../ThemeProvider";
+import {
+  BotIcon,
+  CloseIcon,
+  Logo,
+  LogoutIcon,
+  MenuIcon,
+  MoonIcon,
+  ServersIcon,
+  SettingsIcon,
+  SunIcon,
+  UsersIcon,
+} from "./Icon";
 
 interface Props {
   user: api.Me;
@@ -10,9 +22,24 @@ interface Props {
   children: ReactNode;
 }
 
+/**
+ * The application shell: a permanent sidebar beside the page.
+ *
+ * The panel used to navigate through text links in a top bar, which put the
+ * whole navigation on one line and left the content floating in the middle of
+ * a wide screen with nothing around it. A sidebar gives the page an edge to
+ * sit against, keeps every destination visible at once, and leaves the top of
+ * the content area for what the page is actually about.
+ */
 export function Layout({ user, onLoggedOut, children }: Props) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { base, toggleLightDark } = useTheme();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Navigating on a phone should close the drawer. Without this the new page
+  // renders behind a menu that is still covering it.
+  useEffect(() => setMenuOpen(false), [location.pathname]);
 
   async function handleLogout() {
     await api.logout();
@@ -20,106 +47,196 @@ export function Layout({ user, onLoggedOut, children }: Props) {
     navigate("/login");
   }
 
+  const items = [
+    { to: "/", label: "Серверы", icon: <ServersIcon /> },
+    { to: "/settings", label: "Настройки", icon: <SettingsIcon /> },
+    ...(user.role === "admin"
+      ? [
+          { to: "/admin", label: "Пользователи", icon: <UsersIcon /> },
+          { to: "/bots", label: "Боты", icon: <BotIcon /> },
+        ]
+      : []),
+  ];
+
   return (
     <div className="min-h-screen bg-surface text-body">
-      <header className="border-b border-line bg-elevated">
-        <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3">
-          <Link to="/" className="flex items-center gap-2 font-semibold">
-            <Logo />
-            Mirocraft
-          </Link>
-
-          <nav className="ml-4 flex items-center gap-1 text-sm">
-            <NavItem to="/">Серверы</NavItem>
-            <NavItem to="/settings">Настройки</NavItem>
-            {user.role === "admin" && <NavItem to="/admin">Пользователи</NavItem>}
-            {user.role === "admin" && <NavItem to="/bots">Боты</NavItem>}
-          </nav>
-
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void toggleLightDark()}
-              className="btn btn-ghost px-2 py-1"
-              title={base === "dark" ? "Переключить на светлую" : "Переключить на тёмную"}
-              aria-label="Переключить тему"
-            >
-              {base === "dark" ? <SunIcon /> : <MoonIcon />}
-            </button>
-
-            <span className="hidden text-sm text-muted sm:inline">{user.email}</span>
-
-            <button type="button" onClick={() => void handleLogout()} className="btn btn-ghost text-sm">
-              Выйти
-            </button>
-          </div>
-        </div>
+      {/* The bar exists only below the sidebar's breakpoint. */}
+      <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-sunken px-4 py-2.5 lg:hidden">
+        <button
+          type="button"
+          className="btn btn-quiet btn-icon"
+          onClick={() => setMenuOpen((open) => !open)}
+          aria-label={menuOpen ? "Закрыть меню" : "Открыть меню"}
+          aria-expanded={menuOpen}
+        >
+          {menuOpen ? <CloseIcon /> : <MenuIcon />}
+        </button>
+        <Link to="/" className="flex items-center gap-2 font-semibold">
+          <Logo />
+          Mirocraft
+        </Link>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+      {menuOpen && (
+        <button
+          type="button"
+          className="fixed inset-0 z-30 bg-inset opacity-70 lg:hidden"
+          onClick={() => setMenuOpen(false)}
+          aria-label="Закрыть меню"
+          tabIndex={-1}
+        />
+      )}
 
-      {/*
-        Not decoration and not a credit line: the AGPL asks that people who
-        use the program over a network be offered its source, and this panel
-        is exactly that. One line, at the bottom, where it costs nobody
-        anything and is there when someone looks for it.
-      */}
-      <footer className="mx-auto max-w-6xl px-4 pb-6 text-xs text-faint">
-        Mirocraft · AGPL-3.0 ·{" "}
-        <a
-          href="https://github.com/collybia/mirocraft"
-          target="_blank"
-          rel="noreferrer noopener"
-          className="hover:text-accent"
+      <div className="lg:flex">
+        <aside
+          className={[
+            "fixed inset-y-0 left-0 z-40 flex w-sidebar flex-col border-r border-line bg-sunken",
+            "transition-transform lg:sticky lg:top-0 lg:h-screen lg:translate-x-0",
+            menuOpen ? "translate-x-0" : "-translate-x-full",
+          ].join(" ")}
         >
-          исходный код
-        </a>
-      </footer>
+          <div className="flex items-center gap-2 px-4 py-4">
+            <Link
+              to="/"
+              className="flex items-center gap-2 text-base font-semibold"
+            >
+              <Logo className="h-6 w-6" />
+              Mirocraft
+            </Link>
+            <button
+              type="button"
+              className="btn btn-quiet btn-icon ml-auto lg:hidden"
+              onClick={() => setMenuOpen(false)}
+              aria-label="Закрыть меню"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+
+          <nav className="flex flex-1 flex-col gap-0.5 px-3">
+            {items.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === "/"}
+                className={({ isActive }) =>
+                  isActive ? "nav-item nav-item-active" : "nav-item"
+                }
+              >
+                {item.icon}
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+
+          <div className="border-t border-line p-3">
+            <div className="mb-2 flex items-center gap-2 px-1">
+              <Avatar email={user.email} />
+              <div className="min-w-0">
+                <div className="truncate text-sm">{user.email}</div>
+                <div className="text-xs text-faint">
+                  {user.role === "admin" ? "администратор" : "пользователь"}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => void toggleLightDark()}
+                className="btn btn-quiet btn-sm flex-1"
+                title={
+                  base === "dark"
+                    ? "Переключить на светлую"
+                    : "Переключить на тёмную"
+                }
+                aria-label="Переключить тему"
+              >
+                {base === "dark" ? <SunIcon /> : <MoonIcon />}
+                {base === "dark" ? "Светлая" : "Тёмная"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleLogout()}
+                className="btn btn-quiet btn-sm"
+                title="Выйти"
+              >
+                <LogoutIcon />
+                Выйти
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <div className="min-w-0 flex-1">
+          <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:py-8">
+            {children}
+          </main>
+
+          {/*
+            Not decoration and not a credit line: the AGPL asks that people who
+            use the program over a network be offered its source, and this
+            panel is exactly that. One line, at the bottom, where it costs
+            nobody anything and is there when someone looks for it.
+          */}
+          <footer className="mx-auto max-w-6xl px-4 pb-8 text-xs text-faint sm:px-6">
+            Mirocraft · AGPL-3.0 ·{" "}
+            <a
+              href="https://github.com/collybia/mirocraft"
+              target="_blank"
+              rel="noreferrer noopener"
+              className="hover:text-accent"
+            >
+              исходный код
+            </a>
+          </footer>
+        </div>
+      </div>
     </div>
   );
 }
 
-function NavItem({ to, children }: { to: string; children: ReactNode }) {
+/** The first letter of the account name, so the sidebar foot is not all text. */
+function Avatar({ email }: { email: string }) {
   return (
-    <NavLink
-      to={to}
-      end={to === "/"}
-      className={({ isActive }) =>
-        [
-          "rounded-sm px-3 py-1.5",
-          isActive ? "bg-surface text-body" : "text-muted hover:text-body",
-        ].join(" ")
-      }
-    >
-      {children}
-    </NavLink>
+    <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-accent-bg text-sm font-medium text-accent">
+      {email.slice(0, 1).toUpperCase()}
+    </span>
   );
 }
 
-function Logo() {
+/**
+ * PageHeader is the top of every page: what this is, and what you can do to it.
+ *
+ * Shared rather than repeated so that the title, the description and the
+ * actions keep the same size and spacing everywhere — the thing that made the
+ * old pages feel assembled by different people.
+ */
+export function PageHeader({
+  title,
+  description,
+  actions,
+  back,
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  back?: ReactNode;
+}) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-      <rect x="1" y="1" width="8" height="8" rx="1.5" fill="var(--accent)" />
-      <rect x="11" y="1" width="8" height="8" rx="1.5" fill="var(--text-faint)" />
-      <rect x="1" y="11" width="8" height="8" rx="1.5" fill="var(--text-faint)" />
-      <rect x="11" y="11" width="8" height="8" rx="1.5" fill="var(--accent)" />
-    </svg>
-  );
-}
-
-function SunIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-    </svg>
-  );
-}
-
-function MoonIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
-    </svg>
+    <div className="mb-6">
+      {back}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+          {description && (
+            <p className="mt-1 text-sm text-muted">{description}</p>
+          )}
+        </div>
+        {actions && (
+          <div className="flex flex-wrap items-center gap-2">{actions}</div>
+        )}
+      </div>
+    </div>
   );
 }

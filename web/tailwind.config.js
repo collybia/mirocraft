@@ -21,8 +21,11 @@ export default {
       inherit: "inherit",
 
       surface: "var(--bg)",
+      sunken: "var(--bg-sunken)",
       elevated: "var(--bg-elevated)",
       inset: "var(--bg-inset)",
+      hover: "var(--bg-hover)",
+      active: "var(--bg-active)",
 
       body: "var(--text)",
       muted: "var(--text-muted)",
@@ -31,6 +34,7 @@ export default {
       accent: "var(--accent)",
       "accent-hover": "var(--accent-hover)",
       "accent-fg": "var(--accent-fg)",
+      "accent-bg": "var(--accent-bg)",
 
       success: "var(--success)",
       "success-bg": "var(--success-bg)",
@@ -63,6 +67,21 @@ export default {
       fontFamily: {
         sans: "var(--font-sans)",
         mono: "var(--font-mono)",
+      },
+      // Depth is a token for the same reason colour is: a light theme needs a
+      // different shadow from a dark one, and `shadow-lg` would hardcode one.
+      boxShadow: {
+        DEFAULT: "var(--shadow)",
+        lifted: "var(--shadow-lifted)",
+        none: "none",
+      },
+      spacing: {
+        sidebar: "var(--sidebar-width)",
+      },
+      // Metrics change every few seconds. Proportional digits make the whole
+      // row twitch when 9 becomes 10; tabular ones hold their column.
+      fontVariantNumeric: {
+        tabular: "tabular-nums",
       },
     },
   },

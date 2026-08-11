@@ -18,6 +18,11 @@ type Stats struct {
 	Uptime     time.Duration
 	RAMBytes   uint64
 	CPUPercent float64
+	// RAMLimitBytes is the ceiling the runtime enforces, zero when there is
+	// none. It is not the heap size: a container gets the heap plus headroom
+	// for everything the JVM allocates outside it, so comparing usage against
+	// the heap made a healthy server read as over its limit.
+	RAMLimitBytes uint64
 }
 
 // Stats reports resource usage for a running server.

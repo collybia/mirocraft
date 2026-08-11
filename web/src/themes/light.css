@@ -1,9 +1,14 @@
 /* light — the light counterpart to dark. */
 
 [data-theme="light"] {
-  --bg: #ffffff;
-  --bg-elevated: #f5f6f8;
+  /* The page is the sunken plane and cards sit above it in white. The other
+     way round — white page, grey cards — makes every card look disabled. */
+  --bg: #f7f8fa;
+  --bg-sunken: #f0f2f5;
+  --bg-elevated: #ffffff;
   --bg-inset: #eceef2;
+  --bg-hover: #eaedf2;
+  --bg-active: #e1e5eb;
 
   --text: #1a1d23;
   --text-muted: #545c6b;
@@ -12,6 +17,7 @@
   --accent: #157f3c;
   --accent-hover: #0f6b31;
   --accent-fg: #ffffff;
+  --accent-bg: #e3f6e9;
 
   --success: #157f3c;
   --success-bg: #e3f6e9;
@@ -24,6 +30,11 @@
 
   --border: #d8dce3;
   --border-strong: #767e8c;
+
+  /* Shallower than the dark theme's: on a light ground depth comes from a
+     crisp edge, and a heavy shadow reads as dirt. */
+  --shadow: 0 1px 2px rgb(16 20 28 / 0.06);
+  --shadow-lifted: 0 10px 28px -8px rgb(16 20 28 / 0.18);
 
   --radius: 10px;
   --radius-sm: 6px;

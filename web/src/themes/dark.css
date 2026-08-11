@@ -1,39 +1,52 @@
-/* dark — the neutral graphite default, green accent. */
+/*
+ * dark — the neutral graphite default, green accent.
+ *
+ * Deliberately the same palette as the tokens file: `dark` is the default
+ * theme, and a default that differs from the fallback means every token a
+ * custom theme forgets to set lands on a colour nobody chose.
+ */
 
 [data-theme="dark"] {
-  --bg: #16181d;
-  --bg-elevated: #1e2128;
-  --bg-inset: #101216;
+  --bg: #14161a;
+  --bg-sunken: #101216;
+  --bg-elevated: #1a1d23;
+  --bg-inset: #0d0f12;
+  --bg-hover: #22262e;
+  --bg-active: #272c35;
 
   --text: #e6e8ee;
-  --text-muted: #a5adbd;
-  --text-faint: #7c8496;
+  --text-muted: #a2aab9;
+  --text-faint: #79818f;
 
-  --accent: #4ade80;
-  --accent-hover: #6ee79c;
-  --accent-fg: #08130c;
+  --accent: #3fb950;
+  --accent-hover: #4ac95c;
+  --accent-fg: #07130a;
+  --accent-bg: #16281a;
 
-  --success: #4ade80;
-  --success-bg: #16301f;
-  --warning: #fbbf24;
-  --warning-bg: #32270a;
-  --danger: #f87171;
-  --danger-bg: #331717;
-  --info: #7dd3fc;
-  --info-bg: #12293a;
+  --success: #3fb950;
+  --success-bg: #16281a;
+  --warning: #d9a13b;
+  --warning-bg: #2c2210;
+  --danger: #f2635a;
+  --danger-bg: #2e1614;
+  --info: #58a6ff;
+  --info-bg: #11243a;
 
-  --border: #2b303a;
-  --border-strong: #6b7383;
+  --border: #262b33;
+  --border-strong: #6d7684;
+
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.28);
+  --shadow-lifted: 0 8px 24px -6px rgb(0 0 0 / 0.5);
 
   --radius: 10px;
   --radius-sm: 6px;
   --radius-lg: 16px;
 
-  --console-bg: #101216;
+  --console-bg: #0d0f12;
   --console-text: #d7dce7;
   --console-error: #ff8a8a;
   --console-warn: #ffcf5c;
   --console-info: #8ed7ff;
-  --console-debug: #a5adbd;
-  --console-timestamp: #7c8496;
+  --console-debug: #a2aab9;
+  --console-timestamp: #79818f;
 }

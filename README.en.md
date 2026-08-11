@@ -50,7 +50,7 @@ install path are the same code — otherwise the upgrade path becomes the one no
 | | |
 |---|---|
 | ![Server list](docs/screenshots/servers.png) | ![Server console](docs/screenshots/console.png) |
-| Servers: core, port, memory, status | A WebSocket console, with memory, CPU, uptime, players |
+| Players, load and the controls, on the card itself | A WebSocket console, with memory, CPU, uptime, players |
 | ![Modpacks](docs/screenshots/modpacks.png) | ![Themes](docs/screenshots/themes.png) |
 | A modpack in one click, loader included | Five built-in themes and an editor for your own |
 

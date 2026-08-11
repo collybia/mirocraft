@@ -1,10 +1,10 @@
 /*
  * The theme token contract.
  *
- * Every colour and radius in the panel comes from one of these variables.
- * Components never contain a colour literal; a theme is a file that
- * redefines these and nothing else. If a component seems to need a colour
- * that is not here, the fix is to add a token — not an exception.
+ * Every colour, radius and shadow in the panel comes from one of these
+ * variables. Components never contain a colour literal; a theme is a file that
+ * redefines these and nothing else. If a component seems to need a colour that
+ * is not here, the fix is to add a token — not an exception.
  *
  * The values below are the `dark` palette, which doubles as the fallback for
  * anything a theme forgets to override.
@@ -14,34 +14,52 @@
  */
 
 :root {
-  /* Surfaces, from furthest back to nearest front. */
-  --bg: #16181d;
-  --bg-elevated: #1e2128;
-  --bg-inset: #101216;
+  /* Surfaces, from furthest back to nearest front.
+     --bg-sunken is the sidebar and the page gutter: a plane behind the
+     content rather than another card on top of it. */
+  --bg: #14161a;
+  --bg-sunken: #101216;
+  --bg-elevated: #1a1d23;
+  --bg-inset: #0d0f12;
+
+  /* The wash under a hovered row or a selected item. Kept separate from
+     --bg-elevated so hover reads on cards, which are already elevated. */
+  --bg-hover: #22262e;
+  --bg-active: #272c35;
 
   /* Text, in decreasing prominence. */
   --text: #e6e8ee;
-  --text-muted: #a5adbd;
-  --text-faint: #7c8496;
+  --text-muted: #a2aab9;
+  --text-faint: #79818f;
 
-  /* Accent, plus the text colour that goes ON the accent. */
-  --accent: #4ade80;
-  --accent-hover: #6ee79c;
-  --accent-fg: #08130c;
+  /* Accent, plus the text colour that goes ON the accent.
+     Muted on purpose: the accent marks what you can do and what is running,
+     and an accent used everywhere marks nothing. */
+  --accent: #3fb950;
+  --accent-hover: #4ac95c;
+  --accent-fg: #07130a;
+  /* A tinted wash of the accent, for the selected nav item and soft badges. */
+  --accent-bg: #16281a;
 
   /* Semantic colours and their subdued backgrounds. */
-  --success: #4ade80;
-  --success-bg: #16301f;
-  --warning: #fbbf24;
-  --warning-bg: #32270a;
-  --danger: #f87171;
-  --danger-bg: #331717;
-  --info: #7dd3fc;
-  --info-bg: #12293a;
+  --success: #3fb950;
+  --success-bg: #16281a;
+  --warning: #d9a13b;
+  --warning-bg: #2c2210;
+  --danger: #f2635a;
+  --danger-bg: #2e1614;
+  --info: #58a6ff;
+  --info-bg: #11243a;
 
   /* Borders. --border-strong is for controls that must meet 3:1. */
-  --border: #2b303a;
-  --border-strong: #6b7383;
+  --border: #262b33;
+  --border-strong: #6d7684;
+
+  /* Depth. Two steps: a resting card and something that floats over the page.
+     Shadows are tokens because a light theme needs shallower, darker-edged
+     ones than a dark theme, where depth comes from the surface instead. */
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.28);
+  --shadow-lifted: 0 8px 24px -6px rgb(0 0 0 / 0.5);
 
   /* Radii. The theme editor lets users change these. */
   --radius: 10px;
@@ -49,15 +67,16 @@
   --radius-lg: 16px;
 
   /* Console. Log levels are tokens too, so they stay readable on any theme. */
-  --console-bg: #101216;
+  --console-bg: #0d0f12;
   --console-text: #d7dce7;
   --console-error: #ff8a8a;
   --console-warn: #ffcf5c;
   --console-info: #8ed7ff;
-  --console-debug: #a5adbd;
-  --console-timestamp: #7c8496;
+  --console-debug: #a2aab9;
+  --console-timestamp: #79818f;
 
   /* Not themeable: shared metrics that are not colours. */
   --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, Inter, sans-serif;
   --font-mono: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --sidebar-width: 15rem;
 }
