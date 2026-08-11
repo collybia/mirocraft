@@ -35,6 +35,7 @@ MIROCRAFT_BASE_URL="${MIROCRAFT_BASE_URL:-}"
 
 # MIROCRAFT_MODE picks the DNS/TLS arrangement without asking:
 #   1  free subdomain   2  own domain   3  no domain, address only
+#   4  home computer, panel on localhost only
 # Set it to run unattended; without it the script asks.
 MIROCRAFT_MODE="${MIROCRAFT_MODE:-}"
 
@@ -299,8 +300,12 @@ choose_mode() {
   3) Без домена — по IP-адресу, с самоподписанным сертификатом.
      Браузер будет предупреждать. Всегда можно перенастроить позже.
 
+  4) Домашний компьютер — панель откроется только на нём, по localhost.
+     Без сертификата и без предупреждений браузера. Друзья при этом
+     на серверы заходят: их порты открываются отдельно.
+
 MENU
-    ask "Выберите [1/2/3] (по умолчанию 3): " "3"
+    ask "Выберите [1/2/3/4] (по умолчанию 3): " "3"
 }
 
 # --- configuration ---------------------------------------------------------
@@ -322,6 +327,9 @@ write_config() {
 
     local dns_provider="" dns_zone="" dns_token="" dns_sub=""
     local tls_mode="self-signed" tls_domain="" tls_email="" tls_challenge="http-01" accept_tos="false"
+    # Listens on everything except the home case: on your own machine there is
+    # no reason to show the panel even to the rest of the flat.
+    local listen=":${port}"
 
     case "${mode}" in
         1)
@@ -355,6 +363,14 @@ write_config() {
                 say ""
             fi
             ;;
+        4)
+            # A local address and plain HTTP is not a concession but the
+            # precise answer: the traffic never leaves the machine, there is
+            # nobody to encrypt it from, and a self-signed certificate on
+            # localhost buys only a browser warning people learn to click past.
+            listen="127.0.0.1:${port}"
+            tls_mode="off"
+            ;;
         3|*)
             tls_mode="self-signed"
             ;;
@@ -379,7 +395,7 @@ write_config() {
 # Конфигурация Mirocraft. Полный список полей с пояснениями —
 # https://github.com/${REPO}/blob/master/mirocraft.example.yaml
 
-addr: ":${port}"
+addr: "${listen}"
 data_dir: "${DATA_DIR}"
 
 log:
@@ -416,10 +432,11 @@ CONFIG
 # "Client sent an HTTP request to an HTTPS server", which reads like a broken
 # install rather than a wrong URL. Found exactly that way, in a container.
 read_panel_url() {
-    local scheme="http" host port tls_mode domain
+    local scheme="http" host port tls_mode domain addr
     tls_mode="$(grep -A1 '^tls:' "${CONFIG_PATH}" | grep 'mode:' | cut -d'"' -f2 || true)"
     domain="$(grep -A2 '^tls:' "${CONFIG_PATH}" | grep 'domain:' | cut -d'"' -f2 || true)"
-    port="$(grep '^addr:' "${CONFIG_PATH}" | cut -d'"' -f2 | sed 's/^.*://' || true)"
+    addr="$(grep '^addr:' "${CONFIG_PATH}" | cut -d'"' -f2 || true)"
+    port="${addr##*:}"
     : "${port:=8080}"
 
     PANEL_SELF_SIGNED="no"
@@ -428,8 +445,19 @@ read_panel_url() {
         self-signed) scheme="https"; PANEL_SELF_SIGNED="yes" ;;
     esac
 
+    # The bind address decides both the name and whether a firewall rule is
+    # wanted. Looking up the machine's first non-loopback address for a panel
+    # that listens on loopback only would print a link that does not open and
+    # open a port nobody will knock on.
+    PANEL_LOCAL="no"
+    case "${addr%:*}" in
+        127.*|localhost) PANEL_LOCAL="yes" ;;
+    esac
+
     host="${domain}"
-    if [ -z "${host}" ]; then
+    if [ "${PANEL_LOCAL}" = "yes" ]; then
+        host="localhost"
+    elif [ -z "${host}" ]; then
         host="$(hostname -I 2>/dev/null | awk '{print $1}')"
     fi
     : "${host:=localhost}"
@@ -587,7 +615,11 @@ main() {
 
     # After the service, not before: a port opened for a daemon that never
     # started is a hole for nothing.
-    open_firewall "${PANEL_PORT}"
+    if [ "${PANEL_LOCAL}" = "yes" ]; then
+        ok "Панель только на этом компьютере — правило фаервола не нужно"
+    else
+        open_firewall "${PANEL_PORT}"
+    fi
 
     if [ "${upgrading}" = "yes" ]; then
         say ""
@@ -603,6 +635,13 @@ main() {
     say "${C_BOLD}Готово.${C_OFF}"
     say ""
     say "  Панель:  ${PANEL_URL}"
+    if [ "${PANEL_LOCAL}" = "yes" ]; then
+        say "           ${C_DIM}Открывается только на этом компьютере. Друзьям он не нужен:"
+        say "           на сервер они заходят по адресу из вкладки «Подключение»,"
+        say "           а порт сервера панель откроет в фаерволе сама."
+        say "           Понадобится с других устройств — поменяйте addr на \":${PANEL_PORT}\""
+        say "           в ${CONFIG_PATH} и перезапустите службу.${C_OFF}"
+    fi
     if [ "${PANEL_SELF_SIGNED}" = "yes" ]; then
         say "           ${C_DIM}Сертификат самоподписанный — браузер предупредит."
         say "           Это ожидаемо: соединение шифруется, но подтвердить, что это"
@@ -610,7 +649,7 @@ main() {
         say "           странице настроек.${C_OFF}"
     fi
     print_credentials
-    if [ "${PANEL_FIREWALL_UNKNOWN:-no}" = "yes" ]; then
+    if [ "${PANEL_FIREWALL_UNKNOWN:-no}" = "yes" ] && [ "${PANEL_LOCAL}" != "yes" ]; then
         say "  ${C_DIM}Если панель не открывается снаружи, а локально отвечает —"
         say "  порт ${PANEL_PORT} закрыт фаерволом хостера. Он не виден с самой"
         say "  машины, откройте его в панели провайдера.${C_OFF}"

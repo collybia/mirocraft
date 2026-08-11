@@ -23,14 +23,19 @@ Redis, no separate agent on every machine.
 curl -fsSL https://raw.githubusercontent.com/collybia/mirocraft/master/installer/install.sh | sudo bash
 ```
 
-**Windows Server (PowerShell as administrator):**
+**Windows (PowerShell as administrator):**
 
 ```powershell
 irm https://raw.githubusercontent.com/collybia/mirocraft/master/installer/install.ps1 | iex
 ```
 
-The script asks how the panel should be reachable — a free subdomain, your own domain, or
-just an address — and does the rest itself: user, service, firewall, certificate. It
+The script asks how the panel should be reachable — a free subdomain, your own domain,
+just an address, or **this computer only** — and does the rest itself: user, service,
+firewall, certificate.
+
+The last one is for a machine at home. The panel listens on `localhost`, so it needs no
+certificate, no browser warning and no open port. Friends still join the servers: their
+ports are opened separately, and the "Подключение" tab says which address to hand out. It
 prints the administrator's login and password at the end; they are also written to
 `/var/lib/mirocraft/initial-admin.txt` (on Windows, in the service's data directory).
 

@@ -157,7 +157,8 @@ run_for_image() {
     # Printed, not filed away. The step between "installed" and "logged in"
     # should not be "go and open a file".
     local password
-    password="$(in_container "sed -n 's/^password: //p' /var/lib/mirocraft/initial-admin.txt | head -1" 2>/dev/null | tr -d '')"
+    password="$(in_container "sed -n 's/^password: //p' /var/lib/mirocraft/initial-admin.txt | head -1" 2>/dev/null | tr -d '
+')"
     check "the login is printed"         "$(case "${output}" in *"Логин:"*admin*) echo yes ;; *) echo no ;; esac)"
     check "the password is printed"         "$(if [ -n "${password}" ] && case "${output}" in *"${password}"*) true ;; *) false ;; esac; then echo yes; else echo no; fi)"
 
@@ -212,9 +213,45 @@ run_for_image() {
     check "the service is running after the upgrade" "$(yes_no 'systemctl is-active --quiet mirocraft')"
 
     check_download_path
+    check_home_mode "${image}"
 
     stop_container
     trap - EXIT
+}
+
+# Mode 4: the panel on somebody's own computer.
+#
+# Checked on a fresh machine rather than by editing the previous install,
+# because what is being tested is the choice the wizard makes on behalf of a
+# home user: bound to loopback, plain HTTP, no firewall rule, and an address
+# that actually opens. A localhost bind with an https:// in the output, or a
+# link naming the machine's LAN address, is the same broken install from the
+# operator's side.
+check_home_mode() {
+    local image="$1"
+
+    stop_container
+    start_container "${image}"
+    docker cp "$(host_path "${REPO_ROOT}/installer/install.sh")" "${CONTAINER}:/tmp/install.sh" >/dev/null
+    docker cp "$(host_path "${BINARY}")" "${CONTAINER}:/tmp/mirocraft" >/dev/null
+
+    local output
+    output="$(docker exec         -e MIROCRAFT_MODE=4 -e MIROCRAFT_ASSUME_YES=1 -e MIROCRAFT_BINARY=/tmp/mirocraft         "${CONTAINER}" bash /tmp/install.sh 2>&1)" || {
+        printf '%s
+' "${output}" >&2
+        check "the home-mode install completes" "no"
+        return
+    }
+    check "the home-mode install completes" "yes"
+
+    check "home mode binds loopback only"         "$(yes_no 'grep -q "^addr: \"127.0.0.1:" /etc/mirocraft/mirocraft.yaml')"
+    check "home mode serves plain http"         "$(yes_no 'curl -fsS http://127.0.0.1:8080/api/v1/health | grep -q ok')"
+    check "home mode prints a localhost address"         "$(printf '%s' "${output}" | grep -q 'Панель:  http://localhost:' && echo yes || echo no)"
+    check "home mode opens no firewall port"         "$(printf '%s' "${output}" | grep -q 'правило фаервола не нужно' && echo yes || echo no)"
+    # The panel is private; the servers are not. Saying so is the whole point
+    # of the mode, and an operator who thinks friends cannot connect will not
+    # use it.
+    check "home mode explains how friends still connect"         "$(printf '%s' "${output}" | grep -q 'Подключение' && echo yes || echo no)"
 }
 
 # The path every real operator takes: no local binary, so the installer

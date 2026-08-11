@@ -155,6 +155,40 @@ function Test-DownloadPath {
     Test-Check 'отказ не тронул рабочую установку' $intact
 }
 
+# Test-HomeMode ставит панель так, как её ставит человек на свой компьютер.
+#
+# Проверяется именно выбор, который мастер делает за него: слушать только
+# loopback, отдавать обычный HTTP, не трогать фаервол и напечатать адрес,
+# который откроется. Ссылка на https:// при локальной привязке или на адрес
+# машины в локальной сети — это с точки зрения человека сломанная установка,
+# и отличить её от рабочей он не сможет.
+function Test-HomeMode {
+    Invoke-Installer -ExtraArgs @('-Uninstall') | Out-Null
+    Remove-Item -Recurse -Force (Join-Path $Scratch 'config') -ErrorAction SilentlyContinue
+
+    $output = Invoke-Installer -ExtraArgs @('-Mode', '4')
+    Test-Check 'домашний режим ставится' ($output -match 'Служба запущена') $output
+
+    $configPath = Join-Path $Scratch 'config\mirocraft.yaml'
+    $config = if (Test-Path $configPath) { Get-Content $configPath -Raw } else { '' }
+    Test-Check 'домашний режим слушает только loopback' ($config -match '(?m)^addr:\s*"127\.0\.0\.1:')
+    Test-Check 'домашний режим без TLS' ($config -match '(?m)^\s*mode:\s*"off"')
+
+    Test-Check 'домашний режим печатает localhost' ($output -match 'Панель:  http://localhost:') $output
+    Test-Check 'домашний режим не открывает порт' ($output -match 'правило фаервола не нужно') $output
+    Test-Check 'правило фаервола не создано' `
+        ($null -eq (Get-NetFirewallRule -DisplayName "$ServiceName panel" -ErrorAction SilentlyContinue))
+    # Панель приватная, а серверы — нет. Ради этого режим и нужен, и человек,
+    # решивший, что друзья теперь не зайдут, им не воспользуется.
+    Test-Check 'сказано, как друзья всё-таки подключатся' ($output -match 'Подключение') $output
+
+    $port = if ($config -match '(?m)^addr:\s*"127\.0\.0\.1:(\d+)"') { $Matches[1] } else { '8080' }
+    $answers = try {
+        (Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/v1/health" -UseBasicParsing -TimeoutSec 10).Content
+    } catch { '' }
+    Test-Check 'панель отвечает по обычному HTTP' ($answers -match '"status":"ok"') $answers
+}
+
 function Main {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -269,6 +303,10 @@ function Main {
         # --- загрузка релиза ---
 
         Test-DownloadPath
+
+        # --- домашний режим ---
+
+        Test-HomeMode
 
         # --- удаление ---
 

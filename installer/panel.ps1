@@ -13,7 +13,8 @@
     который никто не проверяет.
 
 .PARAMETER Mode
-    1 — бесплатный поддомен, 2 — свой домен, 3 — без домена (по адресу).
+    1 — бесплатный поддомен, 2 — свой домен, 3 — без домена (по адресу),
+    4 — домашний компьютер (панель только на localhost, без TLS).
     Без параметра скрипт спрашивает.
 
 .PARAMETER Binary
@@ -27,7 +28,7 @@
 
 [CmdletBinding()]
 param(
-    [ValidateSet('1', '2', '3')]
+    [ValidateSet('1', '2', '3', '4')]
     [string]$Mode,
 
     [string]$Binary,
@@ -160,9 +161,13 @@ function Select-Mode {
     Write-Host '  3) Без домена — по IP-адресу, с самоподписанным сертификатом.'
     Write-Host '     Браузер будет предупреждать. Всегда можно перенастроить позже.'
     Write-Host ''
+    Write-Host '  4) Домашний компьютер — панель откроется только на нём, по localhost.'
+    Write-Host '     Без сертификата и без предупреждений браузера. Друзья при этом'
+    Write-Host '     на серверы заходят: их порты открываются отдельно.'
+    Write-Host ''
 
-    $answer = Read-Answer -Prompt 'Выберите [1/2/3] (по умолчанию 3)' -Default '3'
-    if ($answer -notin @('1', '2', '3')) { return '3' }
+    $answer = Read-Answer -Prompt 'Выберите [1/2/3/4] (по умолчанию 3)' -Default '3'
+    if ($answer -notin @('1', '2', '3', '4')) { return '3' }
     return $answer
 }
 
@@ -296,6 +301,9 @@ function Write-Configuration {
     $dnsProvider = ''; $dnsZone = ''; $dnsToken = ''
     $tlsMode = 'self-signed'; $tlsDomain = ''; $tlsEmail = ''
     $tlsChallenge = 'http-01'; $acceptTos = 'false'
+    # Слушает всё, кроме домашнего варианта: на своей машине панель незачем
+    # показывать даже соседям по квартире.
+    $listen = ":$Port"
 
     switch ($SelectedMode) {
         '1' {
@@ -328,6 +336,14 @@ function Write-Configuration {
                 Write-Host ''
             }
         }
+        '4' {
+            # Локальный адрес и открытый HTTP — не послабление, а точный
+            # ответ: трафик не покидает машину, шифровать его не от кого, а
+            # самоподписанный сертификат на localhost даёт только предупреждение
+            # браузера, которое человек приучается пролистывать.
+            $listen = "127.0.0.1:$Port"
+            $tlsMode = 'off'
+        }
         default { $tlsMode = 'self-signed' }
     }
 
@@ -353,7 +369,7 @@ function Write-Configuration {
 # Конфигурация Mirocraft. Полный список полей с пояснениями —
 # https://github.com/$Repo/blob/master/mirocraft.example.yaml
 
-addr: ":$Port"
+addr: "$listen"
 data_dir: "$dataDirYaml"
 
 log:
@@ -455,8 +471,15 @@ function Install-Service {
     # видит мусор, печатает справку и возвращает 1639. На настоящем сервере
     # установка на этом и останавливалась; в тесте — нет, потому что тест
     # ставил во временный каталог без пробелов в пути.
+    # Отображаемое имя — от имени службы, а не постоянное «Mirocraft». Windows
+    # требует, чтобы оба были уникальны, и постоянное превращало вторую
+    # установку с другим -ServiceName в отказ «имя уже используется» — который
+    # никак не связывает себя с параметром, заданным именно ради того, чтобы
+    # установки не мешали друг другу.
+    $displayName = if ($ServiceName -eq 'Mirocraft') { 'Mirocraft' } else { "Mirocraft ($ServiceName)" }
+
     try {
-        New-Service -Name $ServiceName -BinaryPathName $binLine -DisplayName 'Mirocraft' `
+        New-Service -Name $ServiceName -BinaryPathName $binLine -DisplayName $displayName `
             -StartupType Automatic -Description 'Панель управления Minecraft-серверами' `
             -ErrorAction Stop | Out-Null
     }
@@ -523,6 +546,7 @@ function Get-PanelUrl {
     $selfSigned = $false
     $panelHost = ''
     $panelPort = "$Port"
+    $local = $false
 
     if (Test-Path $ConfigPath) {
         $text = Get-Content $ConfigPath -Raw
@@ -533,10 +557,18 @@ function Get-PanelUrl {
                 'self-signed' { $scheme = 'https'; $selfSigned = $true }
             }
         }
+        if ($text -match '(?m)^\s*mode:\s*"off"') { $scheme = 'http'; $selfSigned = $false }
         if ($text -match '(?m)^\s*domain:\s*"([^"]+)"') { $panelHost = $Matches[1] }
         if ($text -match '(?m)^addr:\s*"([^"]*)"') {
             $addr = $Matches[1]
             if ($addr -match ':(\d+)$') { $panelPort = $Matches[1] }
+            # Адрес привязки решает и имя, и нужно ли правило фаервола.
+            # Искать «первый не-loopback адрес машины» для панели, которая
+            # слушает только loopback, — это выдать ссылку, которая не
+            # откроется, и открыть порт, в который никто не постучится.
+            if ($addr -match '^(127\.\d+\.\d+\.\d+|localhost)?:') {
+                if ($addr -notmatch '^:') { $local = $true; $panelHost = 'localhost' }
+            }
         }
     }
 
@@ -551,6 +583,7 @@ function Get-PanelUrl {
         Url        = "${scheme}://${panelHost}:${panelPort}"
         SelfSigned = $selfSigned
         Port       = [int]$panelPort
+        Local      = $local
     }
 }
 
@@ -583,7 +616,12 @@ function Main {
     Install-Service
 
     $panel = Get-PanelUrl
-    Open-Firewall -Port $panel.Port
+    if ($panel.Local) {
+        Write-Ok 'Панель только на этом компьютере — правило фаервола не нужно'
+    }
+    else {
+        Open-Firewall -Port $panel.Port
+    }
 
     Write-Step 'Запускаю службу'
     Start-Service -Name $ServiceName
@@ -619,6 +657,13 @@ function Main {
     Write-Host 'Готово.'
     Write-Host ''
     Write-Host "  Панель:  $($panel.Url)"
+    if ($panel.Local) {
+        Write-Host '           Открывается только на этом компьютере. Друзьям он не нужен:' -ForegroundColor DarkGray
+        Write-Host '           на сервер они заходят по адресу из вкладки «Подключение»,' -ForegroundColor DarkGray
+        Write-Host '           а порт сервера панель откроет в фаерволе сама.' -ForegroundColor DarkGray
+        Write-Host "           Понадобится с других устройств — поменяйте addr на \`":$($panel.Port)\`"" -ForegroundColor DarkGray
+        Write-Host "           в $ConfigPath и перезапустите службу." -ForegroundColor DarkGray
+    }
     if ($panel.SelfSigned) {
         Write-Host '           Сертификат самоподписанный — браузер предупредит.' -ForegroundColor DarkGray
         Write-Host '           Это ожидаемо: соединение шифруется, но подтвердить, что это' -ForegroundColor DarkGray
